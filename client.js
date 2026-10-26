@@ -13,7 +13,7 @@
 // service. No DOM from another plugin is read to estimate placement.
 
 window.__ModuleLoader__.load({
-  id: '@local/rustxng-web-search',
+  id: 'dsh-rustxng-web-search',
   factory(require) {
     const React = require('react')
     const h = React.createElement

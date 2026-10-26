@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "RustXNG Web Search",
-    "description": "Adds key-free web search to the DSH chat by running the bundled RustXNG metasearch server locally and routing the web_search tool through it — no API key or external service required."
+    "description": "Adds key-free web search to the DSH chat: downloads the RustXNG metasearch server from its releases, runs it locally, and routes the web_search tool through it — no API key or external service required. A composer chip turns web search on and off for the current session."
   }
 }

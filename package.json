@@ -1,9 +1,27 @@
 {
-  "name": "@local/rustxng-web-search",
+  "name": "dsh-rustxng-web-search",
   "version": "1.0.0",
-  "private": true,
+  "description": "Key-free web search plugin for DeepSeek Harness: downloads the RustXNG metasearch server from its releases, runs it locally, and adds a per-session Web search switch to the composer.",
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "cordis",
+    "plugin",
+    "bundle",
+    "web-search",
+    "rustxng",
+    "searxng",
+    "metasearch",
+    "key-free"
+  ],
+  "license": "MIT",
+  "author": "Mori",
+  "homepage": "https://www.npmjs.com/package/dsh-rustxng-web-search",
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
+  },
   "type": "module",
-  "description": "Key-free DSH web search: spawns a locally downloaded RustXNG metasearch server and adds the Web search switch to the Harness composer.",
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
@@ -12,8 +30,17 @@
     "./icon": "./icon.svg"
   },
   "scripts": {
+    "check": "node --check index.js && node --check client.js && node --check engine.mjs && node --check scripts/install-engine.mjs && node --check scripts/npm-auth.mjs",
+    "prepublishOnly": "npm run check",
+    "prepack": "npm run check",
     "postinstall": "node scripts/install-engine.mjs",
-    "engine": "node scripts/install-engine.mjs"
+    "engine": "node scripts/install-engine.mjs",
+    "stage": "node scripts/npm-auth.mjs stage publish",
+    "stage:list": "node scripts/npm-auth.mjs stage list",
+    "stage:view": "node scripts/npm-auth.mjs stage view",
+    "stage:approve": "node scripts/npm-auth.mjs stage approve",
+    "stage:reject": "node scripts/npm-auth.mjs stage reject",
+    "publish:local": "node scripts/npm-auth.mjs publish"
   },
   "engines": {
     "node": ">=18"
@@ -25,10 +52,15 @@
     "cordis.patch.yml",
     "scripts/install-engine.mjs",
     "locale/*.json",
-    "icon.svg"
+    "icon.svg",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
   ],
   "dsh": {
-    "bundle": { "patch": "./cordis.patch.yml" },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
     "client": {
       "platform": "web",
       "immediately": true,

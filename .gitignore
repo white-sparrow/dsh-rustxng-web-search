@@ -11,3 +11,7 @@ dist/
 # beside the binary. Partial downloads end in `.part-<pid>`.
 bin/
 *.part-*
+
+# Registry credential for the staging helpers, and the local npm copy they install.
+.env
+.npm-tools/

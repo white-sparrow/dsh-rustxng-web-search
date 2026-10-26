@@ -7,7 +7,7 @@
 # 1. Insert the plugin that registers the "rustxng" search provider.
 - insert:
     - id: rustxng-web-search
-      name: '@local/rustxng-web-search'
+      name: 'dsh-rustxng-web-search'
       config: {}
 
 # 2. Make the DSH web capability always select our local search provider.
