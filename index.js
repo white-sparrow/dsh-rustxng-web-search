@@ -111,9 +111,10 @@ export const Config = {
   },
 }
 
-// The search provider is the hard dependency; the Web server is taken optionally so a
-// headless Host (no Web composition) still searches and simply shows no switch chip.
-export const inject = ['web']
+// A plugin only sees the services it declares, so the Web server (the switch's
+// route host) and the session controller (which sessions are live right now) are
+// both part of the injection: without them the chip would have nothing to read.
+export const inject = ['web', 'webServer', 'sessionController']
 
 /**
  * One prefix route owns every endpoint of this package's Client half, mirroring
@@ -208,6 +209,8 @@ export function apply(ctx, config) {
   const baseUrl = `http://${bindAddress}:${port}`
 
   const log = (message) => ctx.logger?.info?.(`rustxng-web-search: ${message}`)
+
+  const webServer = ctx.get?.('webServer') ?? ctx.webServer
 
   let child = null
   let startPromise = null
@@ -312,19 +315,55 @@ export function apply(ctx, config) {
   }
 
   /**
+   * Which sessions the live registry reports right now.
+   * @returns the session ids.
+   */
+  async function liveSessionIds() {
+    const ids = []
+    try {
+      const value = await ctx.sessionController?.list?.({}, new AbortController().signal)
+      for (const item of value?.items ?? []) ids.push(String(item.sessionId))
+    } catch {
+      /* the live registry is optional context for this reply */
+    }
+    return ids
+  }
+
+  /** What the Agent seed saw, surfaced by `/rustxng-web-search/debug`. */
+  let seedInfo = []
+
+  /**
+   * Adopt Agents that were already live when this plugin activated (an HMR
+   * re-activation mid-session, for example), so a switch click can take their tools
+   * away in the session already running, not only in later ones.
+   */
+  async function seedAgents() {
+    for (const sessionId of await liveSessionIds()) {
+      try {
+        const resolved = await ctx.sessionController?.resolveAgent?.(sessionId)
+        const agent = resolved?.agent ?? (resolved && resolved.ctx ? resolved : null)
+        if (!agent) {
+          seedInfo.push({ sessionId, shape: Object.keys(resolved ?? {}).slice(0, 12) })
+          continue
+        }
+        // The session id is authoritative on this path, so the gate is keyed to it.
+        if (!liveAgents.has(agent)) liveAgents.set(agent, { key: sessionId, raiseGate: undefined })
+        syncGate(agent)
+        seedInfo.push({ sessionId, seeded: true, gated: Boolean(liveAgents.get(agent)?.raiseGate) })
+      } catch (error) {
+        seedInfo.push({ sessionId, error: error instanceof Error ? error.message : String(error) })
+      }
+    }
+  }
+
+  /**
    * Report one session's switch state, plus the live session ids the Host can see
    * so the page (and a local probe) can address the right one.
    * @param sessionId - the session to report, omitted for every known session.
    * @returns the JSON answer.
    */
   async function stateReply(sessionId) {
-    const live = []
-    try {
-      const value = await ctx.sessionController?.list?.({}, new AbortController().signal)
-      for (const item of value?.items ?? []) live.push(String(item.sessionId))
-    } catch {
-      /* the live registry is optional context for this reply */
-    }
+    const live = await liveSessionIds()
     if (sessionId) {
       return {
         sessionId,
@@ -359,6 +398,23 @@ export function apply(ctx, config) {
     const path = (req.url ?? '').split('?')[0]
     const sub = path.slice(ROUTE.length).replace(/^\//, '')
     try {
+      if (req.method === 'GET' && sub === 'debug') {
+        return reply(200, {
+          marker: 'switch-v1',
+          services: {
+            webServerRegister: typeof webServer?.register,
+            sessionList: typeof ctx.sessionController?.list,
+            resolveAgent: typeof ctx.sessionController?.resolveAgent,
+          },
+          defaultEnabled,
+          gatedTools: GATED_TOOLS,
+          live: await liveSessionIds(),
+          seedInfo,
+          overrides: [...sessionOverrides.entries()].map(([id, enabled]) => ({ sessionId: id, enabled })),
+          known: [...liveAgents.values()].map((entry) => entry.key),
+          gated: [...liveAgents.values()].filter((entry) => entry.raiseGate).map((entry) => entry.key),
+        })
+      }
       if (req.method === 'GET' && sub === 'state') {
         const query = new URLSearchParams((req.url ?? '').split('?')[1] ?? '').get('session')
         return reply(200, await stateReply(query || ''))
@@ -514,7 +570,6 @@ export function apply(ctx, config) {
   ctx.effect(() => {
     const disposers = []
 
-    const webServer = ctx.get?.('webServer') ?? ctx.webServer
     if (typeof webServer?.register === 'function') {
       try {
         disposers.push(webServer.register({ kind: 'prefix', path: ROUTE, handler: handle }))
@@ -524,6 +579,10 @@ export function apply(ctx, config) {
     } else {
       log('no Web server in this composition, so the switch chip has no route to read')
     }
+
+    // A session already running when this plugin activates never emits an Agent
+    // lifecycle event this plugin observes, so adopt its Agent once, best effort.
+    void seedAgents()
 
     // Every Agent this plugin sees gets one session entry; the gate itself is
     // only created when its session has been switched off.
