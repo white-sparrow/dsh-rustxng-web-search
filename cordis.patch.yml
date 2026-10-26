@@ -1,0 +1,23 @@
+# Adds key-free web search backed by the bundled RustXNG metasearch server.
+# This bundle layer is the top profile layer, so these overrides win over
+# the built-in defaults shipped with dsh.
+
+# 1. Insert the plugin that registers the "rustxng" search provider.
+- insert:
+    - id: rustxng-web-search
+      name: '@local/rustxng-web-search'
+      config: {}
+
+# 2. Make the DSH web capability always select our local provider.
+#    `config` on the web row is replaced wholesale; the web row carries only
+#    searchProvider / fetchProvider, and fetch stays auto-selected (HTTP).
+- id: web
+  name: '@deepseek-ai/dsh-web'
+  config:
+    searchProvider: rustxng
+
+# 3. Guarantee the model-facing web tools (web_search / web_fetch) are enabled
+#    by default, even in profiles that ship them off.
+- id: tool-web
+  name: '@deepseek-ai/dsh-tool-web'
+  disabled: false

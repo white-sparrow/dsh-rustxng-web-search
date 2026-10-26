@@ -1,0 +1,12 @@
+node_modules/
+pnpm-lock.yaml
+package-lock.json
+*.log
+*.tgz
+dist/
+.DS_Store
+
+# Vendored binary: the plugin needs bin/rustxng.exe, so it is tracked on purpose
+# (21.7 MB, no LFS). Any other stray *.exe stays out of the repo.
+*.exe
+!bin/rustxng.exe

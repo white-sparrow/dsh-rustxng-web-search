@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "RustXNG Web Search",
+    "description": "Adds key-free web search to the DSH chat by running the bundled RustXNG metasearch server locally and routing the web_search tool through it — no API key or external service required."
+  }
+}
