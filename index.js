@@ -296,38 +296,35 @@ export function apply(ctx, config) {
       entry.raiseGate = undefined
       entry.probe = 'raised'
     } else if (off && !entry.raiseGate) {
-      if (!agent.ctx?.tools?.restrict) {
+      const tools = agent.ctx?.tools
+      if (!tools?.restrict) {
         entry.probe = 'this Agent exposes no tools.restrict'
         return
       }
-      // `restrict` fails on unknown names, so only deny tools that exist as globals
-      // for this Agent (a disabled dsh-tool-web row has neither).
-      const deny = GATED_TOOLS.filter((name) => {
+      // `restrict` fails on unknown names, and a restricted-away global reads as
+      // absent, so `tools.get` is both the name filter and the outcome check (a
+      // disabled dsh-tool-web row has neither tool to begin with).
+      const visible = () => GATED_TOOLS.filter((name) => {
         try {
-          return Boolean(agent.ctx.tools.get(name))
+          return Boolean(tools.get(name))
         } catch {
           return false
         }
       })
+      entry.verify = visible
+      const deny = visible()
       if (!deny.length) {
         entry.probe = 'no gated tool visible to this Agent'
         return
       }
       try {
+        // Measure inside the effect callback: an Agent effect can start later than
+        // this call, so measuring out here would report the pre-restriction state.
         entry.raiseGate = agent.ctx.effect(() => {
-          const dispose = agent.ctx.tools.restrict({ deny })
+          const dispose = tools.restrict({ deny })
+          entry.probe = `restricted; visible here: ${visible().join(',') || 'none'}`
           return typeof dispose === 'function' ? dispose : () => {}
         }, 'rustxng-web-search: web search switch')
-        // `tools.get` reads a restricted-away global as absent, so this reports the
-        // outcome rather than the intent.
-        const stillVisible = deny.filter((name) => {
-          try {
-            return Boolean(agent.ctx.tools.get(name))
-          } catch {
-            return false
-          }
-        })
-        entry.probe = `denied ${deny.join(',')} (still visible: ${stillVisible.join(',') || 'none'})`
       } catch (error) {
         entry.probe = `restrict failed: ${error instanceof Error ? error.message : String(error)}`
         log(`could not gate tools for session ${entry.key}: ${entry.probe}`)
@@ -449,6 +446,7 @@ export function apply(ctx, config) {
             source: entry.source ?? 'adopted',
             gated: Boolean(entry.raiseGate),
             probe: entry.probe ?? 'idle',
+            visibleNow: entry.verify ? entry.verify() : null,
           })),
         })
       }
