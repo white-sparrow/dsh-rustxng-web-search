@@ -1,8 +1,17 @@
 // DSH plugin: key-free web search backed by a locally spawned RustXNG metasearch server.
 //
-// It registers a WebSearchProvider (id "rustxng") on ctx.web. The bundle patch
-// pins web.searchProvider = "rustxng" and enables the dsh-tool-web row, so the
-// built-in web_search tool routes here with no API key and no configuration.
+// Two halves, one package:
+//
+// Host (this file) — registers a WebSearchProvider (id "rustxng") on ctx.web. The bundle
+// patch pins web.searchProvider = "rustxng" and enables the dsh-tool-web row, so the
+// built-in web_search / web_fetch tools route here with no API key and no configuration.
+// It also owns the per-session Web search switch: state lives here and is enforced with
+// `agent.ctx.tools.restrict()`, and it answers this package's own Web route so the page
+// can read and change that state.
+//
+// Client (`client.js`) — the "Web search" switch chip in the composer tool row
+// (`conversation.input.left`). It reads and writes the Host state through the same
+// package-private route, exactly as the `power-after-task` plugin's control does.
 //
 // RustXNG is the bundled Rust rewrite of SearXNG: a self-contained HTTP server.
 // We spawn it lazily on the first search, keep it alive for the plugin's lifetime
@@ -36,6 +45,7 @@ const CONFIG_DEFAULTS = {
   bindAddress: '127.0.0.1',
   port: 8888,
   searchTimeoutMs: 30000,
+  defaultEnabled: true,
 }
 
 /** Inclusive bounds for the numeric knobs; the schema types them as numbers only. */
@@ -67,7 +77,13 @@ function validateConfig(input) {
   for (const key of Object.keys(CONFIG_DEFAULTS)) {
     const raw = source[key]
     if (raw === undefined) continue
-    if (typeof CONFIG_DEFAULTS[key] === 'number') {
+    if (typeof CONFIG_DEFAULTS[key] === 'boolean') {
+      if (typeof raw !== 'boolean') {
+        issues.push({ path: [key], message: `${key} must be true or false` })
+        continue
+      }
+      value[key] = raw
+    } else if (typeof CONFIG_DEFAULTS[key] === 'number') {
       if (typeof raw !== 'number' || !Number.isInteger(raw)) {
         issues.push({ path: [key], message: `${key} must be an integer` })
         continue
@@ -95,7 +111,92 @@ export const Config = {
   },
 }
 
+// The search provider is the hard dependency; the Web server is taken optionally so a
+// headless Host (no Web composition) still searches and simply shows no switch chip.
 export const inject = ['web']
+
+/**
+ * One prefix route owns every endpoint of this package's Client half, mirroring
+ * the shape `power-after-task` uses for its own control: the page requests it
+ * document-relative through the shell transport, so the state stays Host-owned.
+ */
+const ROUTE = '/rustxng-web-search'
+/** The model-facing tools the Web search switch takes in and out of a session. */
+const GATED_TOOLS = ['web_search', 'web_fetch']
+/** Body ceiling for the plugin route. */
+const MAX_BODY_BYTES = 4 * 1024
+
+/**
+ * Parse a small JSON request body.
+ * @param req - the incoming request.
+ * @returns the parsed body object.
+ */
+async function readJsonBody(req) {
+  let raw = ''
+  for await (const chunk of req) {
+    raw += typeof chunk === 'string' ? chunk : String(chunk)
+    if (raw.length > MAX_BODY_BYTES) throw new Error('request body exceeds 4 KiB')
+  }
+  if (!raw) return {}
+  const parsed = JSON.parse(raw)
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('request body must be a JSON object')
+  return parsed
+}
+
+/**
+ * Whether a host value names this machine. A rebinding attack reaches the route
+ * under a foreign name, so the Host header is what separates the page from an
+ * outside web page.
+ * @param value - a `Host` or URL hostname, with or without a port.
+ * @returns whether it is a loopback name.
+ */
+function isLoopbackHost(value) {
+  const host = String(value ?? '').toLowerCase()
+  if (!host) return false
+  const closing = host.lastIndexOf(']')
+  const bare = closing > 0 ? host.slice(1, closing) : host.split(':')[0]
+  return bare === 'localhost' || bare === '127.0.0.1' || bare === '::1'
+}
+
+/**
+ * Refuse a read request that proves it came from elsewhere.
+ * @param req - the incoming request.
+ * @returns whether the request may be served.
+ */
+function isSameOrigin(req) {
+  const site = req.headers['sec-fetch-site']
+  if (typeof site === 'string') return site === 'same-origin' || site === 'none'
+  const origin = req.headers['origin']
+  if (typeof origin !== 'string') return true
+  try {
+    return isLoopbackHost(new URL(origin).hostname)
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Whether a mutating request is trusted. A request is refused only when it proves
+ * it is not the page: addressed to a non-loopback host, reported by the browser as
+ * cross-site, or sent with a non-loopback `Origin`.
+ * @param req - the incoming request.
+ * @returns whether the switch change may be applied.
+ */
+function fromPage(req) {
+  const host = req.headers.host
+  if (typeof host === 'string' && !isLoopbackHost(host)) return false
+  const site = req.headers['sec-fetch-site']
+  if (typeof site === 'string' && site !== 'same-origin' && site !== 'none') return false
+  const origin = req.headers['origin']
+  if (typeof origin === 'string') {
+    try {
+      if (!isLoopbackHost(new URL(origin).hostname)) return false
+    } catch {
+      return false
+    }
+  }
+  return true
+}
 
 export function apply(ctx, config) {
   const cfg = config || {}
@@ -103,10 +204,194 @@ export function apply(ctx, config) {
   const bindAddress = cfg.bindAddress ?? '127.0.0.1'
   const port = cfg.port ?? 8888
   const searchTimeoutMs = cfg.searchTimeoutMs ?? 30000
+  const defaultEnabled = cfg.defaultEnabled !== false
   const baseUrl = `http://${bindAddress}:${port}`
+
+  const log = (message) => ctx.logger?.info?.(`rustxng-web-search: ${message}`)
 
   let child = null
   let startPromise = null
+
+  /**
+   * Per-session switch state, owned by the Host. A missing key means the default,
+   * so a session that resumed, forked, or was never visited runs with Web search
+   * on, and only an explicit click writes an override.
+   * `sessionOverides` maps SessionId -> boolean; `liveAgents` maps each Agent this
+   * plugin has seen to `{ key, raiseGate }`.
+   */
+  const sessionOverrides = new Map()
+  const liveAgents = new Map()
+
+  /**
+   * The session an Agent belongs to. Root Agents are addressed by their session
+   * id (as the tool-facing `exec.agent.id` shows in sibling plugins); a scoped Agent
+   * may name its owning session directly, and an unknown key simply keeps the default.
+   * @param agent - the Agent object from an Agent lifecycle event.
+   * @returns the session key, or '' when it cannot be resolved.
+   */
+  function sessionKeyOf(agent) {
+    const candidate = agent?.sessionId ?? agent?.id
+    return typeof candidate === 'string' && candidate ? candidate : ''
+  }
+
+  /** Whether Web search is offered to one session right now. */
+  function enabledFor(key) {
+    const override = key ? sessionOverrides.get(key) : undefined
+    return override === undefined ? defaultEnabled : override
+  }
+
+  /**
+   * Pull the Agent out of an Agent lifecycle event, tolerating either call shape
+   * (a payload object, or positional arguments).
+   * @param args - the listener arguments.
+   * @returns the Agent, or null.
+   */
+  function agentFrom(args) {
+    for (const arg of args) {
+      if (!arg || typeof arg !== 'object') continue
+      if (arg.agent) return arg.agent
+      if ('ctx' in arg || 'id' in arg) return arg
+    }
+    return null
+  }
+
+  /** Whether a lifecycle event reports a session rebuilt from an older log. */
+  function isRebuiltSession(args) {
+    for (const arg of args) {
+      const value = typeof arg === 'string'
+        ? arg
+        : (arg && typeof arg === 'object' ? arg.source : undefined)
+      if (typeof value === 'string' && /resume|fork|restore|replay|load/i.test(value)) return true
+    }
+    return false
+  }
+
+  /**
+   * Align one Agent's tool visibility with its session's switch state. The gate is
+   * one scoped effect per Agent, so raising it is just calling that effect's disposer.
+   * @param agent - the Agent to align.
+   */
+  function syncGate(agent) {
+    if (!agent) return
+    const key = sessionKeyOf(agent)
+    if (!key) return
+    const entry = liveAgents.get(agent)
+    if (!entry) return
+    const off = !enabledFor(key)
+    if (!off && entry.raiseGate) {
+      try {
+        entry.raiseGate()
+      } catch {
+        /* already gone */
+      }
+      entry.raiseGate = undefined
+    } else if (off && !entry.raiseGate && agent.ctx?.tools?.restrict) {
+      // `restrict` fails on unknown names, so only restrict tools that actually
+      // exist as globals for this Agent (a disabled dsh-tool-web row has neither).
+      const deny = GATED_TOOLS.filter((name) => {
+        try {
+          return Boolean(agent.ctx.tools.get(name))
+        } catch {
+          return false
+        }
+      })
+      if (!deny.length) return
+      try {
+        entry.raiseGate = agent.ctx.effect(() => {
+          const dispose = agent.ctx.tools.restrict({ deny })
+          return typeof dispose === 'function' ? dispose : () => {}
+        }, 'rustxng-web-search: web search switch')
+      } catch (error) {
+        log(`could not gate tools for session ${key}: ${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+  }
+
+  function allKnownAgents() {
+    for (const agent of liveAgents.keys()) syncGate(agent)
+  }
+
+  /**
+   * Report one session's switch state, plus the live session ids the Host can see
+   * so the page (and a local probe) can address the right one.
+   * @param sessionId - the session to report, omitted for every known session.
+   * @returns the JSON answer.
+   */
+  async function stateReply(sessionId) {
+    const live = []
+    try {
+      const value = await ctx.sessionController?.list?.({}, new AbortController().signal)
+      for (const item of value?.items ?? []) live.push(String(item.sessionId))
+    } catch {
+      /* the live registry is optional context for this reply */
+    }
+    if (sessionId) {
+      return {
+        sessionId,
+        enabled: enabledFor(sessionId),
+        defaultEnabled,
+        gatedTools: GATED_TOOLS,
+        configured: sessionOverrides.has(sessionId),
+        live,
+      }
+    }
+    return {
+      defaultEnabled,
+      gatedTools: GATED_TOOLS,
+      overrides: [...sessionOverrides.entries()].map(([id, enabled]) => ({ sessionId: id, enabled })),
+      live,
+      known: [...liveAgents.values()].map((entry) => entry.key),
+    }
+  }
+
+  /**
+   * Answer one plugin-route request.
+   * @param req - the incoming request.
+   * @param res - the response to own.
+   */
+  async function handle(req, res) {
+    const reply = (status, body) => {
+      res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' })
+      res.end(JSON.stringify(body))
+    }
+    if (!isSameOrigin(req)) return reply(403, { error: 'this endpoint is only reachable from the Harness page' })
+
+    const path = (req.url ?? '').split('?')[0]
+    const sub = path.slice(ROUTE.length).replace(/^\//, '')
+    try {
+      if (req.method === 'GET' && sub === 'state') {
+        const query = new URLSearchParams((req.url ?? '').split('?')[1] ?? '').get('session')
+        return reply(200, await stateReply(query || ''))
+      }
+      if (req.method === 'GET' && sub === 'tools') {
+        return reply(200, { gatedTools: GATED_TOOLS, defaultEnabled })
+      }
+      if (req.method !== 'POST') return reply(405, { error: `unsupported method ${req.method ?? 'unknown'}` })
+      if (!fromPage(req)) {
+        return reply(403, { error: 'this control only accepts requests from the Harness page' })
+      }
+
+      const body = await readJsonBody(req)
+      if (sub === 'set') {
+        const sessionId = String(body.sessionId ?? '')
+        if (!sessionId) return reply(400, { error: 'sessionId is required' })
+        if (typeof body.enabled !== 'boolean') return reply(400, { error: 'enabled must be true or false' })
+        sessionOverrides.set(sessionId, body.enabled)
+        allKnownAgents()
+        return reply(200, await stateReply(sessionId))
+      }
+      if (sub === 'clear') {
+        const sessionId = String(body.sessionId ?? '')
+        if (!sessionId) return reply(400, { error: 'sessionId is required' })
+        sessionOverrides.delete(sessionId)
+        allKnownAgents()
+        return reply(200, await stateReply(sessionId))
+      }
+      return reply(404, { error: `unknown rustxng-web-search endpoint '${sub}'` })
+    } catch (error) {
+      return reply(400, { error: error instanceof Error ? error.message : String(error) })
+    }
+  }
 
   async function startServer() {
     if (!fs.existsSync(binaryPath)) {
@@ -223,4 +508,65 @@ export function apply(ctx, config) {
       }
     }
   })
+
+  // The switch: Agent lifecycle in, tool visibility out, and the page's own route
+  // back. Registered as one effect so an HMR re-activation rebuilds every piece.
+  ctx.effect(() => {
+    const disposers = []
+
+    const webServer = ctx.get?.('webServer') ?? ctx.webServer
+    if (typeof webServer?.register === 'function') {
+      try {
+        disposers.push(webServer.register({ kind: 'prefix', path: ROUTE, handler: handle }))
+      } catch (error) {
+        log(`web route unavailable: ${error instanceof Error ? error.message : String(error)}`)
+      }
+    } else {
+      log('no Web server in this composition, so the switch chip has no route to read')
+    }
+
+    // Every Agent this plugin sees gets one session entry; the gate itself is
+    // only created when its session has been switched off.
+    disposers.push(ctx.on('agent/created', (...args) => {
+      const agent = agentFrom(args)
+      if (!agent) return
+      const key = sessionKeyOf(agent)
+      if (isRebuiltSession(args) && key) sessionOverrides.delete(key)
+      if (!liveAgents.has(agent) && key) liveAgents.set(agent, { key, raiseGate: undefined })
+      syncGate(agent)
+    }))
+
+    disposers.push(ctx.on('agent/disposed', (...args) => {
+      const agent = agentFrom(args)
+      if (!agent) return
+      const entry = liveAgents.get(agent)
+      if (entry?.raiseGate) {
+        try {
+          entry.raiseGate()
+        } catch {
+          /* already gone */
+        }
+      }
+      liveAgents.delete(agent)
+    }))
+
+    return () => {
+      for (const dispose of disposers) {
+        try {
+          dispose()
+        } catch {
+          /* already disposed */
+        }
+      }
+      for (const entry of liveAgents.values()) {
+        try {
+          entry.raiseGate?.()
+        } catch {
+          /* already gone */
+        }
+      }
+      liveAgents.clear()
+      sessionOverrides.clear()
+    }
+  }, 'rustxng-web-search: switch route, agent gates')
 }
