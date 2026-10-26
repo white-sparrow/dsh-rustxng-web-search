@@ -301,27 +301,37 @@ export function apply(ctx, config) {
         entry.probe = 'this Agent exposes no tools.restrict'
         return
       }
-      // Two ways to read the same set: `get` is the registry lookup, `schemas` is
-      // what the Agent is handed. They can disagree, so record both.
-      const visible = () => GATED_TOOLS.filter((name) => {
+      // `get` and `schemas` take an optional ScopeKey; called without one they read
+      // the global registry, which a per-Agent restriction never changes. Try the
+      // scope keys this Agent handle names, so the check measures what the Agent sees.
+      const scopeKeys = [...new Set(
+        [agent?.id, agent?.scope, agent?.scopeKey, agent?.sessionId]
+          .filter((value) => typeof value === 'string' && value),
+      )]
+      const present = (name, scope) => {
         try {
-          return Boolean(tools.get(name))
+          return Boolean(scope === undefined ? tools.get(name) : tools.get(name, scope))
         } catch {
           return false
         }
-      })
-      const offered = () => {
+      }
+      const offered = (name, scope) => {
         try {
-          return (tools.schemas() ?? [])
-            .map((schema) => schema?.name ?? '')
-            .filter((name) => GATED_TOOLS.includes(name))
-            .join(',')
+          const schemas = scope === undefined ? tools.schemas() : tools.schemas(scope)
+          return (schemas ?? []).some((schema) => schema?.name === name)
         } catch {
-          return '?'
+          return false
         }
       }
-      entry.verify = () => ({ get: visible().join(',') || 'none', schemas: offered() })
-      const deny = visible()
+      const read = (scope) => ({
+        get: GATED_TOOLS.filter((name) => present(name, scope)).join(',') || 'none',
+        schemas: GATED_TOOLS.filter((name) => offered(name, scope)).join(',') || 'none',
+      })
+      entry.verify = () => ({
+        global: read(),
+        scopes: Object.fromEntries(scopeKeys.map((scope) => [scope, read(scope)])),
+      })
+      const deny = GATED_TOOLS.filter((name) => present(name))
       if (!deny.length) {
         entry.probe = 'no gated tool visible to this Agent'
         return
@@ -330,9 +340,14 @@ export function apply(ctx, config) {
         // Measure inside the effect callback: an Agent effect can start later than
         // this call, so measuring out here would report the pre-restriction state.
         entry.raiseGate = agent.ctx.effect(() => {
-          const before = offered()
+          const before = read()
           const dispose = tools.restrict({ deny })
-          entry.probe = `restricted; get ${visible().join(',') || 'none'}; schemas ${before || '?'} -> ${offered() || 'none'}`
+          const after = read()
+          const scoped = scopeKeys.map((scope) => {
+            const value = read(scope)
+            return `${scope}=${value.get}/${value.schemas}`
+          })
+          entry.probe = `restricted; get ${before.get}->${after.get}; schemas ${before.schemas}->${after.schemas}; scopes ${scoped.join(' ') || 'no scope key named'}`
           return typeof dispose === 'function' ? dispose : () => {}
         }, 'rustxng-web-search: web search switch')
       } catch (error) {
