@@ -224,6 +224,8 @@ export function apply(ctx, config) {
    */
   const sessionOverrides = new Map()
   const liveAgents = new Map()
+  /** SessionId -> the single Agent handle adopted from `resolveAgent` for that session. */
+  const adopted = new Map()
 
   /**
    * The session an Agent belongs to. Root Agents are addressed by their session
@@ -234,7 +236,14 @@ export function apply(ctx, config) {
    */
   function sessionKeyOf(agent) {
     const candidate = agent?.sessionId ?? agent?.id
-    return typeof candidate === 'string' && candidate ? candidate : ''
+    if (typeof candidate !== 'string' || !candidate) return ''
+    // A scoped Agent id that carries its session id (a subagent handle, for example)
+    // belongs to that session's switch, so match it against the known overrides.
+    if (sessionOverrides.has(candidate)) return candidate
+    for (const sessionId of sessionOverrides.keys()) {
+      if (sessionId !== candidate && candidate.includes(sessionId)) return sessionId
+    }
+    return candidate
   }
 
   /** Whether Web search is offered to one session right now. */
@@ -270,17 +279,14 @@ export function apply(ctx, config) {
   }
 
   /**
-   * Align one Agent's tool visibility with its session's switch state. The gate is
-   * one scoped effect per Agent, so raising it is just calling that effect's disposer.
-   * @param agent - the Agent to align.
+   * Align one Agent entry with its session's switch state. The gate is one scoped
+   * effect per Agent, so raising it again is just calling that effect's disposer.
+   * @param entry - `{ agent, key }` bookkeeping for one Agent, plus its last probe.
    */
-  function syncGate(agent) {
+  function syncEntry(entry) {
+    const agent = entry?.agent
     if (!agent) return
-    const key = sessionKeyOf(agent)
-    if (!key) return
-    const entry = liveAgents.get(agent)
-    if (!entry) return
-    const off = !enabledFor(key)
+    const off = !enabledFor(entry.key)
     if (!off && entry.raiseGate) {
       try {
         entry.raiseGate()
@@ -288,9 +294,14 @@ export function apply(ctx, config) {
         /* already gone */
       }
       entry.raiseGate = undefined
-    } else if (off && !entry.raiseGate && agent.ctx?.tools?.restrict) {
-      // `restrict` fails on unknown names, so only restrict tools that actually
-      // exist as globals for this Agent (a disabled dsh-tool-web row has neither).
+      entry.probe = 'raised'
+    } else if (off && !entry.raiseGate) {
+      if (!agent.ctx?.tools?.restrict) {
+        entry.probe = 'this Agent exposes no tools.restrict'
+        return
+      }
+      // `restrict` fails on unknown names, so only deny tools that exist as globals
+      // for this Agent (a disabled dsh-tool-web row has neither).
       const deny = GATED_TOOLS.filter((name) => {
         try {
           return Boolean(agent.ctx.tools.get(name))
@@ -298,20 +309,37 @@ export function apply(ctx, config) {
           return false
         }
       })
-      if (!deny.length) return
+      if (!deny.length) {
+        entry.probe = 'no gated tool visible to this Agent'
+        return
+      }
       try {
         entry.raiseGate = agent.ctx.effect(() => {
           const dispose = agent.ctx.tools.restrict({ deny })
           return typeof dispose === 'function' ? dispose : () => {}
         }, 'rustxng-web-search: web search switch')
+        // `tools.get` reads a restricted-away global as absent, so this reports the
+        // outcome rather than the intent.
+        const stillVisible = deny.filter((name) => {
+          try {
+            return Boolean(agent.ctx.tools.get(name))
+          } catch {
+            return false
+          }
+        })
+        entry.probe = `denied ${deny.join(',')} (still visible: ${stillVisible.join(',') || 'none'})`
       } catch (error) {
-        log(`could not gate tools for session ${key}: ${error instanceof Error ? error.message : String(error)}`)
+        entry.probe = `restrict failed: ${error instanceof Error ? error.message : String(error)}`
+        log(`could not gate tools for session ${entry.key}: ${entry.probe}`)
       }
+    } else if (off) {
+      entry.probe = 'denied already'
     }
   }
 
-  function allKnownAgents() {
-    for (const agent of liveAgents.keys()) syncGate(agent)
+  function syncAll() {
+    for (const entry of liveAgents.values()) syncEntry(entry)
+    for (const entry of adopted.values()) syncEntry(entry)
   }
 
   /**
@@ -329,41 +357,48 @@ export function apply(ctx, config) {
     return ids
   }
 
-  /** What the Agent seed saw, surfaced by `/rustxng-web-search/debug`. */
-  let seedInfo = []
+  /** What the last `resolveAgent` attempt saw, surfaced by `/rustxng-web-search/debug`. */
+  let adoptProbe = 'no Agent adopted yet'
 
   /**
-   * Adopt Agents that were already live when this plugin activated (an HMR
-   * re-activation mid-session, for example), so a switch click can take their tools
-   * away in the session already running, not only in later ones.
+   * Adopt the live Agent of one session. A session that was already running when
+   * this plugin activates never emits an Agent event this plugin observes, so the
+   * session id named by a switch click is resolved on demand instead of enumerating
+   * the session registry (`list` reports every persisted session, not a live set).
+   * @param sessionId - the session whose Agent to adopt.
    */
-  async function seedAgents() {
-    for (const sessionId of await liveSessionIds()) {
-      try {
-        const resolved = await ctx.sessionController?.resolveAgent?.(sessionId)
-        const agent = resolved?.agent ?? (resolved && resolved.ctx ? resolved : null)
-        if (!agent) {
-          seedInfo.push({ sessionId, shape: Object.keys(resolved ?? {}).slice(0, 12) })
-          continue
-        }
-        // The session id is authoritative on this path, so the gate is keyed to it.
-        if (!liveAgents.has(agent)) liveAgents.set(agent, { key: sessionId, raiseGate: undefined })
-        syncGate(agent)
-        seedInfo.push({ sessionId, seeded: true, gated: Boolean(liveAgents.get(agent)?.raiseGate) })
-      } catch (error) {
-        seedInfo.push({ sessionId, error: error instanceof Error ? error.message : String(error) })
+  async function adoptAgent(sessionId) {
+    try {
+      const resolved = await ctx.sessionController?.resolveAgent?.(sessionId)
+      const agent = resolved?.agent ?? (resolved && resolved.ctx ? resolved : null)
+      if (!agent) {
+        adoptProbe = `no Agent for ${sessionId}: keys ${Object.keys(resolved ?? {}).slice(0, 8).join(',') || 'none'}`
+        return
       }
+      // One handle per session, so repeated clicks do not accumulate Agents; drop
+      // the previous handle's gate before replacing it.
+      const previous = adopted.get(sessionId)
+      if (previous?.raiseGate) {
+        try {
+          previous.raiseGate()
+        } catch {
+          /* already gone */
+        }
+      }
+      adopted.set(sessionId, { agent, key: sessionId, source: 'resolveAgent', raiseGate: undefined })
+      adoptProbe = `adopted Agent for ${sessionId}`
+    } catch (error) {
+      adoptProbe = `resolveAgent('${sessionId}') failed: ${error instanceof Error ? error.message : String(error)}`
+      log(adoptProbe)
     }
   }
 
   /**
-   * Report one session's switch state, plus the live session ids the Host can see
-   * so the page (and a local probe) can address the right one.
+   * Report one session's switch state for the page.
    * @param sessionId - the session to report, omitted for every known session.
    * @returns the JSON answer.
    */
   async function stateReply(sessionId) {
-    const live = await liveSessionIds()
     if (sessionId) {
       return {
         sessionId,
@@ -371,15 +406,13 @@ export function apply(ctx, config) {
         defaultEnabled,
         gatedTools: GATED_TOOLS,
         configured: sessionOverrides.has(sessionId),
-        live,
       }
     }
     return {
       defaultEnabled,
       gatedTools: GATED_TOOLS,
       overrides: [...sessionOverrides.entries()].map(([id, enabled]) => ({ sessionId: id, enabled })),
-      live,
-      known: [...liveAgents.values()].map((entry) => entry.key),
+      known: [...liveAgents.values(), ...adopted.values()].map((entry) => entry.key),
     }
   }
 
@@ -408,11 +441,15 @@ export function apply(ctx, config) {
           },
           defaultEnabled,
           gatedTools: GATED_TOOLS,
-          live: await liveSessionIds(),
-          seedInfo,
+          liveCount: (await liveSessionIds()).length,
+          adoptProbe,
           overrides: [...sessionOverrides.entries()].map(([id, enabled]) => ({ sessionId: id, enabled })),
-          known: [...liveAgents.values()].map((entry) => entry.key),
-          gated: [...liveAgents.values()].filter((entry) => entry.raiseGate).map((entry) => entry.key),
+          gates: [...liveAgents.values(), ...adopted.values()].map((entry) => ({
+            key: entry.key,
+            source: entry.source ?? 'adopted',
+            gated: Boolean(entry.raiseGate),
+            probe: entry.probe ?? 'idle',
+          })),
         })
       }
       if (req.method === 'GET' && sub === 'state') {
@@ -433,14 +470,16 @@ export function apply(ctx, config) {
         if (!sessionId) return reply(400, { error: 'sessionId is required' })
         if (typeof body.enabled !== 'boolean') return reply(400, { error: 'enabled must be true or false' })
         sessionOverrides.set(sessionId, body.enabled)
-        allKnownAgents()
+        await adoptAgent(sessionId)
+        syncAll()
         return reply(200, await stateReply(sessionId))
       }
       if (sub === 'clear') {
         const sessionId = String(body.sessionId ?? '')
         if (!sessionId) return reply(400, { error: 'sessionId is required' })
         sessionOverrides.delete(sessionId)
-        allKnownAgents()
+        await adoptAgent(sessionId)
+        syncAll()
         return reply(200, await stateReply(sessionId))
       }
       return reply(404, { error: `unknown rustxng-web-search endpoint '${sub}'` })
@@ -580,19 +619,17 @@ export function apply(ctx, config) {
       log('no Web server in this composition, so the switch chip has no route to read')
     }
 
-    // A session already running when this plugin activates never emits an Agent
-    // lifecycle event this plugin observes, so adopt its Agent once, best effort.
-    void seedAgents()
-
-    // Every Agent this plugin sees gets one session entry; the gate itself is
-    // only created when its session has been switched off.
+    // Every Agent this plugin sees through a lifecycle event becomes one entry; the
+    // gate itself is only created when its session has been switched off. A subagent
+    // is only gated when the runtime names its owning session (see `sessionKeyOf`).
     disposers.push(ctx.on('agent/created', (...args) => {
       const agent = agentFrom(args)
       if (!agent) return
       const key = sessionKeyOf(agent)
       if (isRebuiltSession(args) && key) sessionOverrides.delete(key)
-      if (!liveAgents.has(agent) && key) liveAgents.set(agent, { key, raiseGate: undefined })
-      syncGate(agent)
+      if (key && !liveAgents.has(agent)) liveAgents.set(agent, { agent, key, source: 'event' })
+      const entry = liveAgents.get(agent)
+      if (entry) syncEntry(entry)
     }))
 
     disposers.push(ctx.on('agent/disposed', (...args) => {
@@ -617,7 +654,7 @@ export function apply(ctx, config) {
           /* already disposed */
         }
       }
-      for (const entry of liveAgents.values()) {
+      for (const entry of [...liveAgents.values(), ...adopted.values()]) {
         try {
           entry.raiseGate?.()
         } catch {
@@ -625,6 +662,7 @@ export function apply(ctx, config) {
         }
       }
       liveAgents.clear()
+      adopted.clear()
       sessionOverrides.clear()
     }
   }, 'rustxng-web-search: switch route, agent gates')
