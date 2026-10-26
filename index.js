@@ -407,8 +407,15 @@ export function apply(ctx, config) {
           /* already gone */
         }
       }
+      const shape = (value) => {
+        try {
+          return Object.keys(value ?? {}).slice(0, 16).join(',')
+        } catch {
+          return 'unreadable'
+        }
+      }
       adopted.set(sessionId, { agent, key: sessionId, source: 'resolveAgent', raiseGate: undefined })
-      adoptProbe = `adopted Agent for ${sessionId}`
+      adoptProbe = `adopted Agent for ${sessionId}; resolved[${shape(resolved)}] agent[${shape(agent)}] ctx[${shape(agent?.ctx)}]`
     } catch (error) {
       adoptProbe = `resolveAgent('${sessionId}') failed: ${error instanceof Error ? error.message : String(error)}`
       log(adoptProbe)
@@ -481,6 +488,28 @@ export function apply(ctx, config) {
       }
       if (req.method === 'GET' && sub === 'tools') {
         return reply(200, { gatedTools: GATED_TOOLS, defaultEnabled })
+      }
+      if (req.method === 'GET' && sub === 'probe') {
+        // End-to-end self test: start the engine if needed, search through the
+        // `web` service exactly as the model-facing tool does, report the outcome.
+        const params = new URLSearchParams((req.url ?? '').split('?')[1] ?? '')
+        const query = params.get('query') || 'deepseek harness'
+        const maxResults = Number(params.get('max')) || 2
+        try {
+          const result = await ctx.web?.search?.({ query, maxResults })
+          return reply(200, {
+            ok: true,
+            sources: result?.sources?.length ?? 0,
+            first: result?.sources?.[0]?.url ?? null,
+            answered: Boolean(result?.content),
+            truncated: result?.truncated ?? false,
+          })
+        } catch (error) {
+          return reply(200, {
+            ok: false,
+            error: error instanceof Error ? error.message : String(error),
+          })
+        }
       }
       if (req.method !== 'POST') return reply(405, { error: `unsupported method ${req.method ?? 'unknown'}` })
       if (!fromPage(req)) {
