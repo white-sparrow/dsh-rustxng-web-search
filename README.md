@@ -29,7 +29,7 @@ session) and install one of these. The repository is public, so npm is not requi
 | Source | Install spec |
 | --- | --- |
 | npm package (once the stage is approved) | `dsh-rustxng-web-search` |
-| This repository at tag `v1.0.0` | `dsh-rustxng-web-search@gh:white-sparrow/dsh-rustxng-web-search#v1.0.0` |
+| This repository at tag `v1.0.0` | `dsh-rustxng-web-search@github:white-sparrow/dsh-rustxng-web-search#v1.0.0` |
 | A packed tarball — the asset on the release | `<path>/dsh-rustxng-web-search-1.0.0.tgz` |
 | A local checkout, for development | `<path>/rustxng-web-search` (pnpm links it) |
 
