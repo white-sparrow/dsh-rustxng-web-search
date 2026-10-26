@@ -17,6 +17,13 @@
   "license": "MIT",
   "author": "Mori",
   "homepage": "https://www.npmjs.com/package/dsh-rustxng-web-search",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/white-sparrow/dsh-rustxng-web-search.git"
+  },
+  "bugs": {
+    "url": "https://github.com/white-sparrow/dsh-rustxng-web-search/issues"
+  },
   "publishConfig": {
     "registry": "https://registry.npmjs.org/",
     "access": "public"

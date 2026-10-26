@@ -23,17 +23,25 @@ the first search), verified against the published sha256, and stored in `bin/`.
 
 ## Install
 
+Any of these installs the same bundle; the repository is public, so you do not need
+npm to use it:
+
 ```
 dsh plugin install dsh-rustxng-web-search
+dsh plugin install dsh-rustxng-web-search@gh:white-sparrow/dsh-rustxng-web-search
+dsh plugin install ./dsh-rustxng-web-search-1.0.0.tgz
 ```
 
-`postinstall` fetches the engine. If that step is skipped (a linked checkout, a
-blocked network), the first search fetches the same asset instead — the plugin never
-searches without a verified binary.
+The first resolves the published npm package, the second builds from this repository
+at the `v1.0.0` tag, and the third installs the tarball attached to the GitHub release.
 
-Set `RUSTXNG_ENGINE=skip` to opt out of the install-time download; run
-`npm run engine` later to fetch it manually (`--force` to re-download,
-`--latest` to pick the newest release).
+`postinstall` fetches the engine. If that step is skipped (a linked checkout, a blocked
+build script, a blocked network), the first search fetches the same asset instead — the
+plugin never searches without a verified binary.
+
+Set `RUSTXNG_ENGINE=skip` to opt out of the install-time download; run `npm run engine`
+later to fetch it manually (`--force` to re-download, `--latest` to pick the newest
+release).
 
 ## Engine supply
 
@@ -78,6 +86,10 @@ local process — because that transport does not carry `Origin` or `Sec-Fetch-S
   `binaryPath` to a binary you supply yourself.
 
 ## Publishing
+
+The plugin is published in two ways: the npm package (staged, then approved) and this
+public repository — tag `v1.0.0` plus a GitHub release carrying
+`dsh-rustxng-web-search-1.0.0.tgz`, which is exactly what `npm pack` produces.
 
 The package is staged for publishing with a **staging-only** Granular Access Token
 kept in the gitignored `.env` (`NPM_TOKEN=<token>`, see `.env.example`).
