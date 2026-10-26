@@ -58,3 +58,11 @@ available without writing a rustxng settings file.
   row's `config` wholesale, and omitting `fetchProvider` makes `web_fetch` fail with
   `WEB_PROVIDER_AMBIGUOUS` once `deepseek-fetch-api` and `http` are both registered.
 - Only English locale metadata is shipped (`locale/en.json`).
+- Known limitation: the Settings page reports this plugin's config schema as
+  `unsupported` (query `Config.listConfigs` with entry `include:rustxng-web-search`), because
+  a hand-rolled Standard Schema cannot be projected into an editable form. Validation and
+  defaults still work; tune the values by editing the row's `config` in a patch layer, e.g.
+  `config: { port: 9123 }`.
+- The Web search settings switch writes a `web` row into the profile patch, which is a HIGHER
+  layer than this bundle's patch. If that switch is used, it wins over the pin here; re-assert
+  `searchProvider: rustxng` + `fetchProvider: http` in the profile patch to keep this provider.
