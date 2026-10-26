@@ -1,4 +1,6 @@
-# Adds key-free web search backed by the bundled RustXNG metasearch server.
+# Adds key-free web search backed by a local RustXNG metasearch server.
+# The engine binary is fetched from upstream RustXNG releases into bin/, never
+# committed and never published by this bundle.
 # This bundle layer is the top profile layer, so these overrides win over
 # the built-in defaults shipped with dsh.
 
