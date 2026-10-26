@@ -23,25 +23,21 @@ the first search), verified against the published sha256, and stored in `bin/`.
 
 ## Install
 
-Any of these installs the same bundle; the repository is public, so you do not need
-npm to use it:
+Open the Plugin Manager (in the Harness UI, or with the `plugin_manager` tool from a
+session) and install one of these. The repository is public, so npm is not required:
 
-```
-dsh plugin install dsh-rustxng-web-search
-dsh plugin install dsh-rustxng-web-search@gh:white-sparrow/dsh-rustxng-web-search
-dsh plugin install ./dsh-rustxng-web-search-1.0.0.tgz
-```
+| Source | Install spec |
+| --- | --- |
+| npm package (once the stage is approved) | `dsh-rustxng-web-search` |
+| This repository at tag `v1.0.0` | `dsh-rustxng-web-search@gh:white-sparrow/dsh-rustxng-web-search#v1.0.0` |
+| A packed tarball — the asset on the release | `<path>/dsh-rustxng-web-search-1.0.0.tgz` |
+| A local checkout, for development | `<path>/rustxng-web-search` (pnpm links it) |
 
-The first resolves the published npm package, the second builds from this repository
-at the `v1.0.0` tag, and the third installs the tarball attached to the GitHub release.
-
-`postinstall` fetches the engine. If that step is skipped (a linked checkout, a blocked
-build script, a blocked network), the first search fetches the same asset instead — the
-plugin never searches without a verified binary.
-
-Set `RUSTXNG_ENGINE=skip` to opt out of the install-time download; run `npm run engine`
-later to fetch it manually (`--force` to re-download, `--latest` to pick the newest
-release).
+The package runs **no install scripts**, so installing is only copying files: the first
+search downloads the engine into `bin/` beside the installed copy and verifies its
+sha256. Run `npm run engine` when you want the binary up front (`--force` re-downloads,
+`--latest` takes the newest release); `RUSTXNG_ENGINE=skip` opts out of that script
+entirely.
 
 ## Engine supply
 

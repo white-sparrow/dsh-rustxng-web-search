@@ -1,13 +1,14 @@
-// Install-time engine fetch, run by this package's `postinstall`.
+// Optional up-front engine fetch: `npm run engine` (or `node scripts/install-engine.mjs`).
 //
-// A published install therefore needs nothing but the network: this script pulls the
-// pinned RustXNG release for the current platform, verifies its sha256, and writes it
-// to `bin/`. Package managers do not always run install scripts (pnpm asks first, and
-// `--ignore-scripts` skips them), so this script deliberately exits 0 even when it
-// fails: the plugin itself downloads the same asset on first search.
+// This package deliberately ships no install scripts, so a package manager never stops
+// to ask whether it may run one: a published install is just files. The plugin
+// downloads the engine itself on the first search; run this script when you would rather
+// have the binary in place beforehand. It pulls the pinned RustXNG release for the
+// current platform, verifies its sha256, and writes it to `bin/`. It exits 0 even when
+// it fails, so it can never break a build.
 //
 // Knobs (all optional):
-//   RUSTXNG_ENGINE=skip | RUSTXNG_ENGINE_SKIP=1   do nothing at install time
+//   RUSTXNG_ENGINE=skip | RUSTXNG_ENGINE_SKIP=1   exit without doing anything
 //   RUSTXNG_ENGINE_VERSION=0.4.1                  override the pinned release
 //   RUSTXNG_ENGINE_REPO=owner/repo                use a fork's releases
 //   RUSTXNG_ENGINE_PATH=<file>                  land somewhere else

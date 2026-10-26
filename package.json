@@ -40,7 +40,6 @@
     "check": "node --check index.js && node --check client.js && node --check engine.mjs && node --check scripts/install-engine.mjs && node --check scripts/npm-auth.mjs",
     "prepublishOnly": "npm run check",
     "prepack": "npm run check",
-    "postinstall": "node scripts/install-engine.mjs",
     "engine": "node scripts/install-engine.mjs",
     "stage": "node scripts/npm-auth.mjs stage publish",
     "stage:list": "node scripts/npm-auth.mjs stage list",

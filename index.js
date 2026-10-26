@@ -13,12 +13,13 @@
 // (`conversation.input.left`). It reads and writes the Host state through the same
 // package-private route, exactly as the `power-after-task` plugin's control does.
 //
-// RustXNG is the bundled Rust rewrite of SearXNG: a self-contained HTTP server,
+// RustXNG is a Rust rewrite of SearXNG: a self-contained HTTP metasearch server,
 // AGPL-3.0-or-later. It is NOT shipped inside this package. `engine.mjs` fetches the
-// release asset for this platform and verifies its sha256; the package's `postinstall`
-// runs it, and this plugin runs it too on first search, so an install whose scripts
-// were skipped (or that had no network at install time) still works. The same helper
-// drives the auto-update check.
+// release asset for this platform and verifies its sha256. This package runs no
+// install scripts (a package manager would stop and ask before running one); the
+// plugin fetches the binary itself on the first search, and `npm run engine` fetches
+// it up front for anyone who wants it earlier. The same helper drives the auto-update
+// check.
 // We spawn the binary lazily on the first search, keep it alive for the plugin's
 // lifetime (one server reused across searches), and query GET /search?...&format=json.
 
@@ -267,7 +268,7 @@ export function apply(ctx, config) {
    * Per-session switch state, owned by the Host. A missing key means the default,
    * so a session that resumed, forked, or was never visited runs with Web search
    * on, and only an explicit click writes an override.
-   * `sessionOverides` maps SessionId -> boolean; `liveAgents` maps each Agent this
+   * `sessionOverrides` maps SessionId -> boolean; `liveAgents` maps each Agent this
    * plugin has seen to `{ key, raiseGate }`.
    */
   const sessionOverrides = new Map()
@@ -619,8 +620,9 @@ export function apply(ctx, config) {
 
   /**
    * Make sure the engine binary exists, fetching the configured release when
-   * `autoDownload` allows it. Runs before every spawn, so a published install needs
-   * nobody to place a binary by hand and a skipped `postinstall` stays recoverable.
+   * `autoDownload` allows it. Runs before every spawn, so an installed copy needs
+   * nobody to place a binary by hand, and a machine that was offline at install time
+   * recovers on the next search.
    */
   async function ensureEngine() {
     if (fs.existsSync(binaryPath)) return

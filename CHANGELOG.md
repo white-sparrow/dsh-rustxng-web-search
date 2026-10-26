@@ -7,7 +7,8 @@
   and `web_fetch` need no API key.
 - Engine supply: fetched on demand from `sahenjp/RustXNG` GitHub releases into
   `bin/`, verified by published sha256 and byte count, written atomically, resumed
-  across interrupted downloads, and kept current with a scheduled upstream check.
+  across interrupted downloads, and kept current with a scheduled upstream check. The
+  package runs no install scripts, so installing never stops on a blocked build script.
 - Client half: a Web search chip in the composer tool row toggles web search per
   session (default on) and shows the engine's version and status.
 - Control routes under `/rustxng-web-search`: `engine`, `version`, `state`,
