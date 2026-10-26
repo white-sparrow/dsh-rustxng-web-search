@@ -12,7 +12,6 @@ import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import fs from 'node:fs'
-import z from '@deepseek-ai/schemastery'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 
@@ -27,38 +26,71 @@ function defaultBinary() {
 
 const DEFAULT_BINARY = defaultBinary()
 
-// Tunables surfaced through the plugin's Config. Schemastery schemas (not raw
-// JSON Schema) are the form the Loader validates row `config` against at
-// activation, so every field carries its default here and activation never
-// requires a config.
-export const Config = z.object({
-  binaryPath: z
-    .string()
-    .default(DEFAULT_BINARY)
-    .description('Absolute path to the RustXNG binary. Defaults to the bundled bin/rustxng(.exe).'),
-  bindAddress: z
-    .string()
-    .default('127.0.0.1')
-    .description('Loopback address the local metasearch server listens on.'),
-  port: z
-    .number()
-    .default(8888)
-    .description('Port the server listens on; change it if the port is already taken.'),
-  requestTimeoutMs: z
-    .number()
-    .default(20000)
-    .description('Timeout for a single upstream engine request inside RustXNG.'),
-  searchTimeoutMs: z
-    .number()
-    .default(30000)
-    .description('Per-call timeout for one web_search query.'),
-})
+// Tunables surfaced through the plugin's Config. The Loader validates the row's
+// `config` at activation through the Standard Schema interface (`Config['~standard'].validate`),
+// so a raw JSON Schema object crashes activation, and `@deepseek-ai/schemastery`
+// cannot be imported from a locally linked bundle (Node resolves imports from the
+// checkout, not from the profile's node_modules). Hence a hand-rolled Standard Schema.
+const CONFIG_DEFAULTS = {
+  binaryPath: DEFAULT_BINARY,
+  bindAddress: '127.0.0.1',
+  port: 8888,
+  requestTimeoutMs: 20000,
+  searchTimeoutMs: 30000,
+}
 
-/** Range-checked like the shipped web tools do, since the schema only types numbers. */
-function assertPositiveInteger(name, value, min = 1, max = Number.MAX_SAFE_INTEGER) {
-  if (!Number.isInteger(value) || value < min || value > max) {
-    throw new Error(`rustxng-web-search: ${name} must be an integer between ${min} and ${max}, got ${value}`)
+/** Inclusive bounds for the numeric knobs; the schema types them as numbers only. */
+const CONFIG_RANGES = {
+  port: [1, 65535],
+  requestTimeoutMs: [1000, 3_600_000],
+  searchTimeoutMs: [1000, 300_000],
+}
+
+/**
+ * Standard Schema validation for the row config: applies defaults, rejects unknown
+ * fields, and range-checks numbers. Returns `{ value }` on success or `{ issues }`
+ * on failure, per the Standard Schema contract.
+ */
+function validateConfig(input) {
+  if (input !== undefined && input !== null && (typeof input !== 'object' || Array.isArray(input))) {
+    return { issues: [{ message: 'rustxng-web-search config must be an object' }] }
   }
+  const source = input || {}
+  const issues = []
+  const unknown = Object.keys(source).filter((key) => !(key in CONFIG_DEFAULTS))
+  if (unknown.length) {
+    issues.push({ message: `unknown config field(s): ${unknown.join(', ')}; expected ${Object.keys(CONFIG_DEFAULTS).join(', ')}` })
+  }
+  const value = { ...CONFIG_DEFAULTS }
+  for (const key of Object.keys(CONFIG_DEFAULTS)) {
+    const raw = source[key]
+    if (raw === undefined) continue
+    if (typeof CONFIG_DEFAULTS[key] === 'number') {
+      if (typeof raw !== 'number' || !Number.isInteger(raw)) {
+        issues.push({ path: [key], message: `${key} must be an integer` })
+        continue
+      }
+      const bounds = CONFIG_RANGES[key] ?? [Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER]
+      if (raw < bounds[0] || raw > bounds[1]) {
+        issues.push({ path: [key], message: `${key} must be between ${bounds[0]} and ${bounds[1]}` })
+        continue
+      }
+      value[key] = raw
+    } else if (typeof raw !== 'string' || raw.length === 0) {
+      issues.push({ path: [key], message: `${key} must be a non-empty string` })
+    } else {
+      value[key] = raw
+    }
+  }
+  return issues.length ? { issues } : { value }
+}
+
+export const Config = {
+  '~standard': {
+    version: 1,
+    vendor: 'rustxng-web-search',
+    validate: validateConfig,
+  },
 }
 
 export const inject = ['web']
@@ -70,9 +102,6 @@ export function apply(ctx, config) {
   const port = cfg.port ?? 8888
   const requestTimeoutMs = cfg.requestTimeoutMs ?? 20000
   const searchTimeoutMs = cfg.searchTimeoutMs ?? 30000
-  assertPositiveInteger('port', port, 1, 65535)
-  assertPositiveInteger('requestTimeoutMs', requestTimeoutMs, 1000)
-  assertPositiveInteger('searchTimeoutMs', searchTimeoutMs, 1000)
   const baseUrl = `http://${bindAddress}:${port}`
 
   let child = null
