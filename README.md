@@ -29,8 +29,8 @@ session) and install one of these. The repository is public, so npm is not requi
 | Source | Install spec |
 | --- | --- |
 | npm package (once the stage is approved) | `dsh-rustxng-web-search` |
-| This repository at tag `v1.0.0` | `dsh-rustxng-web-search@github:white-sparrow/dsh-rustxng-web-search#v1.0.0` |
-| A packed tarball — the asset on the release | `<path>/dsh-rustxng-web-search-1.0.0.tgz` |
+| This repository at tag `v1.0.1` | `dsh-rustxng-web-search@github:white-sparrow/dsh-rustxng-web-search#v1.0.1` |
+| A packed tarball — the asset on the release | `<path>/dsh-rustxng-web-search-1.0.1.tgz` |
 | A local checkout, for development | `<path>/rustxng-web-search` (pnpm links it) |
 
 The package runs **no install scripts**, so installing is only copying files: the first
@@ -80,12 +80,15 @@ local process — because that transport does not carry `Origin` or `Sec-Fetch-S
   keeps being used, and `GET engine` shows the error in `note` / `error`.
 - No asset for your platform/arch → `GET engine` reports it in `target`; set
   `binaryPath` to a binary you supply yourself.
+- `ERR_PNPM_IGNORED_BUILDS` while installing → you resolved npm `1.0.0`, which shipped
+  an install script; take `1.0.1`, or install from this repository's tag instead.
 
 ## Publishing
 
 The plugin is published in two ways: the npm package (staged, then approved) and this
-public repository — tag `v1.0.0` plus a GitHub release carrying
-`dsh-rustxng-web-search-1.0.0.tgz`, which is exactly what `npm pack` produces.
+public repository — the current tag `v1.0.1` plus a GitHub release carrying
+`dsh-rustxng-web-search-1.0.1.tgz`, which is what `npm pack` produces. A first
+`1.0.0` is already live on npm; its tag marks the commit that was published.
 
 The package is staged for publishing with a **staging-only** Granular Access Token
 kept in the gitignored `.env` (`NPM_TOKEN=<token>`, see `.env.example`).

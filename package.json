@@ -1,6 +1,6 @@
 {
   "name": "dsh-rustxng-web-search",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Key-free web search plugin for DeepSeek Harness: downloads the RustXNG metasearch server from its releases, runs it locally, and adds a per-session Web search switch to the composer.",
   "keywords": [
     "deepseek-harness",
