@@ -86,6 +86,29 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * Describe the engine half in one short line for the tooltip, from the `engine`
+     * block the Host already returns on the state route. Nothing is guessed here.
+     * @param engine - the engine block, or undefined when the Host gave none.
+     * @returns the status line, or an empty string when there is nothing to report.
+     */
+    function engineLine(engine) {
+      if (!engine) return ''
+      if (!engine.present) {
+        if (engine.autoDownload) {
+          return `engine ${engine.pinned || engine.latestSeen || 'release'} not downloaded yet: the first search fetches it`
+        }
+        return 'no engine binary: set binaryPath, or enable autoDownload'
+      }
+      const parts = [`engine ${engine.version || 'unknown'}`]
+      parts.push(engine.running ? 'running' : 'starts on first search')
+      if (engine.latestSeen && engine.version && engine.latestSeen !== engine.version) {
+        parts.push(`newer ${engine.latestSeen} pending`)
+      }
+      if (engine.error) parts.push(String(engine.error).slice(0, 90))
+      return parts.join(', ')
+    }
+
+    /**
      * The Web search switch.
      * @param props - slot props (`sessionId`) plus the registration's `inject`.
      * @returns the entry element, or null when the Host half is unreachable.
@@ -95,6 +118,7 @@ window.__ModuleLoader__.load({
       const [enabled, setEnabled] = React.useState(true)
       const [reachable, setReachable] = React.useState(true)
       const [defaultEnabled, setDefaultEnabled] = React.useState(true)
+      const [engineText, setEngineText] = React.useState('')
 
       // A read every few seconds: it adopts Host state changed elsewhere (a resumed
       // session resets to the default) and doubles as the availability probe.
@@ -105,6 +129,7 @@ window.__ModuleLoader__.load({
             if (!alive) return
             setReachable(true)
             setEnabled(info?.enabled !== false)
+            setEngineText(engineLine(info?.engine))
             if (typeof info?.defaultEnabled === 'boolean') setDefaultEnabled(info.defaultEnabled)
           }, () => {
             if (!alive) return
@@ -138,7 +163,7 @@ window.__ModuleLoader__.load({
         role: 'switch',
         'aria-checked': enabled,
         'aria-label': off ? t('offLabel') : t('title'),
-        title: off ? t('tipOff') : t('tipOn'),
+        title: [off ? t('tipOff') : t('tipOn'), engineText].filter(Boolean).join(' | '),
         style: {
           ...chrome,
           color: colour,
