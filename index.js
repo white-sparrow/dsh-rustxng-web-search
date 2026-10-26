@@ -301,53 +301,27 @@ export function apply(ctx, config) {
         entry.probe = 'this Agent exposes no tools.restrict'
         return
       }
-      // `get` and `schemas` take an optional ScopeKey; called without one they read
-      // the global registry, which a per-Agent restriction never changes. Try the
-      // scope keys this Agent handle names, so the check measures what the Agent sees.
-      const scopeKeys = [...new Set(
-        [agent?.id, agent?.scope, agent?.scopeKey, agent?.sessionId]
-          .filter((value) => typeof value === 'string' && value),
-      )]
-      const present = (name, scope) => {
+      // `restrict` rejects unknown names, so filter against the registry first. (The
+      // registry is fine for *names*; it is not a read-out of the per-Agent mask —
+      // `get` / `schemas` always report the global set, which this plugin measured.)
+      const deny = GATED_TOOLS.filter((name) => {
         try {
-          return Boolean(scope === undefined ? tools.get(name) : tools.get(name, scope))
+          return Boolean(tools.get(name))
         } catch {
           return false
         }
-      }
-      const offered = (name, scope) => {
-        try {
-          const schemas = scope === undefined ? tools.schemas() : tools.schemas(scope)
-          return (schemas ?? []).some((schema) => schema?.name === name)
-        } catch {
-          return false
-        }
-      }
-      const read = (scope) => ({
-        get: GATED_TOOLS.filter((name) => present(name, scope)).join(',') || 'none',
-        schemas: GATED_TOOLS.filter((name) => offered(name, scope)).join(',') || 'none',
       })
-      entry.verify = () => ({
-        global: read(),
-        scopes: Object.fromEntries(scopeKeys.map((scope) => [scope, read(scope)])),
-      })
-      const deny = GATED_TOOLS.filter((name) => present(name))
       if (!deny.length) {
-        entry.probe = 'no gated tool visible to this Agent'
+        entry.probe = 'neither gated tool is registered in this profile'
         return
       }
       try {
-        // Measure inside the effect callback: an Agent effect can start later than
-        // this call, so measuring out here would report the pre-restriction state.
+        // Register the mask inside an Agent effect so it belongs to that Agent's context
+        // and goes away with it; keep the disposer here too so a switch click can lift
+        // the mask (an `agent.ctx` registration has two owners).
         entry.raiseGate = agent.ctx.effect(() => {
-          const before = read()
           const dispose = tools.restrict({ deny })
-          const after = read()
-          const scoped = scopeKeys.map((scope) => {
-            const value = read(scope)
-            return `${scope}=${value.get}/${value.schemas}`
-          })
-          entry.probe = `restricted; get ${before.get}->${after.get}; schemas ${before.schemas}->${after.schemas}; scopes ${scoped.join(' ') || 'no scope key named'}`
+          entry.probe = `web search denied for this Agent (${deny.join(', ')})`
           return typeof dispose === 'function' ? dispose : () => {}
         }, 'rustxng-web-search: web search switch')
       } catch (error) {
@@ -407,15 +381,8 @@ export function apply(ctx, config) {
           /* already gone */
         }
       }
-      const shape = (value) => {
-        try {
-          return Object.keys(value ?? {}).slice(0, 16).join(',')
-        } catch {
-          return 'unreadable'
-        }
-      }
       adopted.set(sessionId, { agent, key: sessionId, source: 'resolveAgent', raiseGate: undefined })
-      adoptProbe = `adopted Agent for ${sessionId}; resolved[${shape(resolved)}] agent[${shape(agent)}] ctx[${shape(agent?.ctx)}]`
+      adoptProbe = `adopted Agent for ${sessionId}`
     } catch (error) {
       adoptProbe = `resolveAgent('${sessionId}') failed: ${error instanceof Error ? error.message : String(error)}`
       log(adoptProbe)
@@ -478,7 +445,6 @@ export function apply(ctx, config) {
             source: entry.source ?? 'adopted',
             gated: Boolean(entry.raiseGate),
             probe: entry.probe ?? 'idle',
-            visibleNow: entry.verify ? entry.verify() : null,
           })),
         })
       }
