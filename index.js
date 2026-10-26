@@ -12,6 +12,7 @@ import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import fs from 'node:fs'
+import z from '@deepseek-ai/schemastery'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 
@@ -24,53 +25,54 @@ function defaultBinary() {
   return win // best-effort; available() reports false when it is genuinely missing
 }
 
-// Tunables surfaced through the plugin's Config. All optional; sensible defaults
-// applied in code so activation never requires a config.
-export const Config = {
-  $schema: 'https://json-schema.org/draft/2020-12/schema',
-  type: 'object',
-  additionalProperties: false,
-  properties: {
-    binaryPath: {
-      type: 'string',
-      description: 'Absolute path to the RustXNG binary. Defaults to the bundled bin/rustxng(.exe).',
-    },
-    bindAddress: {
-      type: 'string',
-      default: '127.0.0.1',
-      description: 'Loopback address the server listens on.',
-    },
-    port: {
-      type: 'integer',
-      minimum: 1,
-      maximum: 65535,
-      default: 8888,
-      description: 'Port the server listens on; change it if the port is already taken.',
-    },
-    requestTimeoutMs: {
-      type: 'integer',
-      minimum: 1000,
-      default: 20000,
-      description: 'Timeout for a single upstream engine request inside RustXNG.',
-    },
-    searchTimeoutMs: {
-      type: 'integer',
-      minimum: 1000,
-      default: 30000,
-      description: 'Per-call timeout for one web_search query.',
-    },
-  },
+const DEFAULT_BINARY = defaultBinary()
+
+// Tunables surfaced through the plugin's Config. Schemastery schemas (not raw
+// JSON Schema) are the form the Loader validates row `config` against at
+// activation, so every field carries its default here and activation never
+// requires a config.
+export const Config = z.object({
+  binaryPath: z
+    .string()
+    .default(DEFAULT_BINARY)
+    .description('Absolute path to the RustXNG binary. Defaults to the bundled bin/rustxng(.exe).'),
+  bindAddress: z
+    .string()
+    .default('127.0.0.1')
+    .description('Loopback address the local metasearch server listens on.'),
+  port: z
+    .number()
+    .default(8888)
+    .description('Port the server listens on; change it if the port is already taken.'),
+  requestTimeoutMs: z
+    .number()
+    .default(20000)
+    .description('Timeout for a single upstream engine request inside RustXNG.'),
+  searchTimeoutMs: z
+    .number()
+    .default(30000)
+    .description('Per-call timeout for one web_search query.'),
+})
+
+/** Range-checked like the shipped web tools do, since the schema only types numbers. */
+function assertPositiveInteger(name, value, min = 1, max = Number.MAX_SAFE_INTEGER) {
+  if (!Number.isInteger(value) || value < min || value > max) {
+    throw new Error(`rustxng-web-search: ${name} must be an integer between ${min} and ${max}, got ${value}`)
+  }
 }
 
 export const inject = ['web']
 
 export function apply(ctx, config) {
   const cfg = config || {}
-  const binaryPath = cfg.binaryPath ?? defaultBinary()
+  const binaryPath = cfg.binaryPath ?? DEFAULT_BINARY
   const bindAddress = cfg.bindAddress ?? '127.0.0.1'
   const port = cfg.port ?? 8888
   const requestTimeoutMs = cfg.requestTimeoutMs ?? 20000
   const searchTimeoutMs = cfg.searchTimeoutMs ?? 30000
+  assertPositiveInteger('port', port, 1, 65535)
+  assertPositiveInteger('requestTimeoutMs', requestTimeoutMs, 1000)
+  assertPositiveInteger('searchTimeoutMs', searchTimeoutMs, 1000)
   const baseUrl = `http://${bindAddress}:${port}`
 
   let child = null
