@@ -35,16 +35,18 @@ const CONFIG_DEFAULTS = {
   binaryPath: DEFAULT_BINARY,
   bindAddress: '127.0.0.1',
   port: 8888,
-  requestTimeoutMs: 20000,
   searchTimeoutMs: 30000,
 }
 
 /** Inclusive bounds for the numeric knobs; the schema types them as numbers only. */
 const CONFIG_RANGES = {
   port: [1, 65535],
-  requestTimeoutMs: [1000, 3_600_000],
   searchTimeoutMs: [1000, 300_000],
 }
+
+// RustXNG's CLI takes only `-c/--config`, `-b/--bind`, `-p/--port`, `-v`, `-h`,
+// so the only knobs this plugin can set without writing a settings file are the
+// bind address, the port, and our own per-call client-side timeout.
 
 /**
  * Standard Schema validation for the row config: applies defaults, rejects unknown
@@ -100,7 +102,6 @@ export function apply(ctx, config) {
   const binaryPath = cfg.binaryPath ?? DEFAULT_BINARY
   const bindAddress = cfg.bindAddress ?? '127.0.0.1'
   const port = cfg.port ?? 8888
-  const requestTimeoutMs = cfg.requestTimeoutMs ?? 20000
   const searchTimeoutMs = cfg.searchTimeoutMs ?? 30000
   const baseUrl = `http://${bindAddress}:${port}`
 
@@ -113,7 +114,7 @@ export function apply(ctx, config) {
     }
     child = spawn(
       binaryPath,
-      ['-b', bindAddress, '-p', String(port), '--debug', String(requestTimeoutMs)],
+      ['-b', bindAddress, '-p', String(port)],
       { stdio: 'ignore', windowsHide: true },
     )
     const deadline = Date.now() + 8000

@@ -8,13 +8,17 @@
       name: '@local/rustxng-web-search'
       config: {}
 
-# 2. Make the DSH web capability always select our local provider.
-#    `config` on the web row is replaced wholesale; the web row carries only
-#    searchProvider / fetchProvider, and fetch stays auto-selected (HTTP).
+# 2. Make the DSH web capability always select our local search provider.
+#    `config` on the web row is replaced WHOLESALE, not merged: the web row owns
+#    exactly `searchProvider` and `fetchProvider`, so both must be restated.
+#    `fetchProvider: http` keeps the shipped base default; leaving it out would
+#    leave fetch auto-selected and fail with WEB_PROVIDER_AMBIGUOUS once both
+#    `deepseek-fetch-api` and `http` are registered.
 - id: web
   name: '@deepseek-ai/dsh-web'
   config:
     searchProvider: rustxng
+    fetchProvider: http
 
 # 3. Guarantee the model-facing web tools (web_search / web_fetch) are enabled
 #    by default, even in profiles that ship them off.
