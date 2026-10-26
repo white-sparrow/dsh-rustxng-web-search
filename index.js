@@ -301,9 +301,8 @@ export function apply(ctx, config) {
         entry.probe = 'this Agent exposes no tools.restrict'
         return
       }
-      // `restrict` fails on unknown names, and a restricted-away global reads as
-      // absent, so `tools.get` is both the name filter and the outcome check (a
-      // disabled dsh-tool-web row has neither tool to begin with).
+      // Two ways to read the same set: `get` is the registry lookup, `schemas` is
+      // what the Agent is handed. They can disagree, so record both.
       const visible = () => GATED_TOOLS.filter((name) => {
         try {
           return Boolean(tools.get(name))
@@ -311,7 +310,17 @@ export function apply(ctx, config) {
           return false
         }
       })
-      entry.verify = visible
+      const offered = () => {
+        try {
+          return (tools.schemas() ?? [])
+            .map((schema) => schema?.name ?? '')
+            .filter((name) => GATED_TOOLS.includes(name))
+            .join(',')
+        } catch {
+          return '?'
+        }
+      }
+      entry.verify = () => ({ get: visible().join(',') || 'none', schemas: offered() })
       const deny = visible()
       if (!deny.length) {
         entry.probe = 'no gated tool visible to this Agent'
@@ -321,8 +330,9 @@ export function apply(ctx, config) {
         // Measure inside the effect callback: an Agent effect can start later than
         // this call, so measuring out here would report the pre-restriction state.
         entry.raiseGate = agent.ctx.effect(() => {
+          const before = offered()
           const dispose = tools.restrict({ deny })
-          entry.probe = `restricted; visible here: ${visible().join(',') || 'none'}`
+          entry.probe = `restricted; get ${visible().join(',') || 'none'}; schemas ${before || '?'} -> ${offered() || 'none'}`
           return typeof dispose === 'function' ? dispose : () => {}
         }, 'rustxng-web-search: web search switch')
       } catch (error) {
