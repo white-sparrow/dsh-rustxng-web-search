@@ -3,19 +3,29 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "description": "Key-free DSH web search: spawns a locally downloaded RustXNG metasearch server and adds the Web search switch to the Harness composer.",
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
+    "./engine": "./engine.mjs",
     "./locale/*.json": "./locale/*.json",
     "./icon": "./icon.svg"
+  },
+  "scripts": {
+    "postinstall": "node scripts/install-engine.mjs",
+    "engine": "node scripts/install-engine.mjs"
+  },
+  "engines": {
+    "node": ">=18"
   },
   "files": [
     "index.js",
     "client.js",
+    "engine.mjs",
     "cordis.patch.yml",
+    "scripts/install-engine.mjs",
     "locale/*.json",
-    "icon.svg",
-    "bin/*"
+    "icon.svg"
   ],
   "dsh": {
     "bundle": { "patch": "./cordis.patch.yml" },

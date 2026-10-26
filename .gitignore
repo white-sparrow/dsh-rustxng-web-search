@@ -6,7 +6,8 @@ package-lock.json
 dist/
 .DS_Store
 
-# Vendored binary: the plugin needs bin/rustxng.exe, so it is tracked on purpose
-# (21.7 MB, no LFS). Any other stray *.exe stays out of the repo.
-*.exe
-!bin/rustxng.exe
+# The engine is fetched, never vendored: `npm run engine` (or `postinstall`, or the
+# first search) fills bin/ from upstream releases, and its install metadata lives
+# beside the binary. Partial downloads end in `.part-<pid>`.
+bin/
+*.part-*
