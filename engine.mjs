@@ -18,8 +18,14 @@ import https from 'node:https'
 
 /** Repository this plugin downloads from; override with the `engineRepo` config. */
 export const REPO = 'sahenjp/RustXNG'
-/** The release this plugin was built against: a fresh install takes this one. */
-export const PINNED_VERSION = '0.4.1'
+/**
+ * The release this plugin was built against: a fresh install takes this one.
+ * 0.5.0 added the agent-facing parameters this plugin sends (`max_results`,
+ * `include_domains`, `exclude_domains`) and fixed `timeout_limit` discarding results
+ * from engines that had already answered; older builds simply ignore the extra
+ * query parameters.
+ */
+export const PINNED_VERSION = '0.5.1'
 export const UA = 'rustxng-web-search-plugin'
 
 const API = 'https://api.github.com'

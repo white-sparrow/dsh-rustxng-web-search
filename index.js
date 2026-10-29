@@ -38,6 +38,7 @@ import {
   checkForUpdate,
   installEngine,
 } from './engine.mjs'
+import { rankResults } from './rank.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 
@@ -65,6 +66,16 @@ const CONFIG_DEFAULTS = {
   updateIntervalMs: 21_600_000, // 6 h between upstream release checks
   downloadTimeoutMs: 180_000,
   checkTimeoutMs: 15_000,
+  // Search quality: how the engine is asked, and how its merged result list is
+  // re-ordered before it reaches the model. See rank.mjs for why the re-ranking
+  // exists (the engine scores every engine's first hit exactly 1, so its own
+  // order is "one arbitrary hit per engine").
+  searchLanguage: 'en', // '' = the engine's own default ('auto')
+  safesearch: 1, // 0 = off, 1 = moderate, 2 = on
+  resultPool: 40, // results fetched and re-ranked before slicing
+  hostCap: 5, // results one host may contribute after re-ranking
+  includeDomains: '', // space- or comma-separated host filter (RustXNG >= 0.5.0)
+  excludeDomains: '',
 }
 
 /** Inclusive bounds for the numeric knobs; the schema types them as numbers only. */
@@ -74,7 +85,13 @@ const CONFIG_RANGES = {
   updateIntervalMs: [60_000, 432_000_000], // 1 minute .. 5 days
   downloadTimeoutMs: [5_000, 3_600_000], // 5 s .. 1 h
   checkTimeoutMs: [1_000, 120_000], // 1 s .. 2 min
+  safesearch: [0, 2],
+  resultPool: [5, 200],
+  hostCap: [1, 20],
 }
+
+/** Knobs where an empty string means "leave it to the engine". */
+const EMPTY_OK = ['engineVersion', 'searchLanguage', 'includeDomains', 'excludeDomains']
 
 // RustXNG's CLI takes only `-c/--config`, `-b/--bind`, `-p/--port`, `-v`, `-h`,
 // so the only knobs this plugin can set without writing a settings file are the
@@ -116,8 +133,9 @@ function validateConfig(input) {
         continue
       }
       value[key] = raw
-    } else if (key === 'engineVersion' && raw === '') {
-      // An empty pin means "follow the newest release", not "missing value".
+    } else if (raw === '' && EMPTY_OK.includes(key)) {
+      // An empty pin means "follow the newest release"; for the other keys here
+      // it means "send nothing and let the engine choose".
       value[key] = ''
     } else if (typeof raw !== 'string' || raw.length === 0) {
       issues.push({ path: [key], message: `${key} must be a non-empty string` })
@@ -245,6 +263,14 @@ export function apply(ctx, config) {
   const updateIntervalMs = cfg.updateIntervalMs ?? 21_600_000
   const downloadTimeoutMs = cfg.downloadTimeoutMs ?? 180_000
   const checkTimeoutMs = cfg.checkTimeoutMs ?? 15_000
+  // Search-quality knobs: how the engine is asked, and how wide a pool is
+  // re-ranked before the model's slice. Documented in CONFIG_DEFAULTS.
+  const searchLanguage = cfg.searchLanguage ?? 'en'
+  const safesearch = typeof cfg.safesearch === 'number' ? cfg.safesearch : 1
+  const resultPool = cfg.resultPool ?? 40
+  const hostCap = cfg.hostCap ?? 3
+  const includeDomains = cfg.includeDomains ?? ''
+  const excludeDomains = cfg.excludeDomains ?? ''
   const baseUrl = `http://${bindAddress}:${port}`
 
   const log = (message) => ctx.logger?.info?.(`rustxng-web-search: ${message}`)
@@ -263,6 +289,10 @@ export function apply(ctx, config) {
   let updaterState = { scheduled: false, immediateCheck: false, reason: 'the updater has not run its activation pass yet' }
   /** Whether this instance of the plugin owns the `rustxng` Web provider slot. */
   let providerState = { registered: false, error: '' }
+  /** The most recent search as the engine reported it: which engines were blocked,
+   * how many results came back, and how many survived re-ranking. Diagnostic for
+   * the "results look junky" case — usually most good engines are suspended. */
+  let lastSearchState = null
 
   /**
    * Per-session switch state, owned by the Host. A missing key means the default,
@@ -613,6 +643,15 @@ export function apply(ctx, config) {
       busy: engineBusy,
       updater: updaterState,
       provider: providerState,
+      search: {
+        language: searchLanguage,
+        safesearch,
+        pool: resultPool,
+        hostCap,
+        includeDomains,
+        excludeDomains,
+      },
+      lastSearch: lastSearchState,
       note: engineNote,
       error: engineError,
     }
@@ -777,9 +816,20 @@ export function apply(ctx, config) {
       throw new Error(`RustXNG search server failed to start: ${e.message}`)
     }
 
+    // Ask in a way that trims the junk class a partially blocked engine set
+    // produces, and pull a pool wide enough to re-rank honestly. `max_results`
+    // bounds the payload on RustXNG >= 0.5.0; older builds ignore unknown
+    // parameters and simply return their merged list.
+    const asked = typeof request.maxResults === 'number' && request.maxResults > 0 ? request.maxResults : 0
+    const poolSize = Math.max(resultPool, asked)
     const u = new URL(`${baseUrl}/search`)
     u.searchParams.set('q', request.query)
     u.searchParams.set('format', 'json')
+    if (searchLanguage) u.searchParams.set('language', searchLanguage)
+    u.searchParams.set('safesearch', String(safesearch))
+    if (includeDomains) u.searchParams.set('include_domains', includeDomains)
+    if (excludeDomains) u.searchParams.set('exclude_domains', excludeDomains)
+    if (poolSize > 0) u.searchParams.set('max_results', String(poolSize))
 
     const ac = new AbortController()
     const timer = setTimeout(() => ac.abort(), searchTimeoutMs)
@@ -796,7 +846,13 @@ export function apply(ctx, config) {
       }
       const data = await res.json()
 
-      let sources = (Array.isArray(data.results) ? data.results : [])
+      // The engine merges ~39 upstream engines but scores every engine's first
+      // hit exactly 1, so its own order is "one arbitrary hit per engine"; re-rank
+      // the merged pool by query agreement (see rank.mjs) before slicing.
+      const raw = Array.isArray(data.results) ? data.results : []
+      const ordered = rankResults(request.query, raw, { hostCap, pool: poolSize })
+
+      let sources = ordered
         .map((r) => {
           const s = { url: r.url }
           if (r.title) s.title = r.title
@@ -809,6 +865,22 @@ export function apply(ctx, config) {
 
       if (typeof request.maxResults === 'number' && request.maxResults >= 0) {
         sources = sources.slice(0, request.maxResults)
+      }
+
+      // Upstream engines that were blocked or failed are the usual reason a merged
+      // list is thin or off-topic, so keep them visible in `GET engine`.
+      const blocked = (Array.isArray(data.unresponsive_engines) ? data.unresponsive_engines : []).map((entry) =>
+        Array.isArray(entry)
+          ? { engine: String(entry[0] ?? ''), error: String(entry[1] ?? '') }
+          : { engine: String(entry ?? ''), error: '' },
+      )
+      lastSearchState = {
+        at: new Date().toISOString(),
+        query: request.query,
+        pool: raw.length,
+        kept: sources.length,
+        blockedCount: blocked.length,
+        blocked: blocked.slice(0, 12),
       }
 
       // Prefer an aggregated instant answer (SearXNG "answers") as the summary body.

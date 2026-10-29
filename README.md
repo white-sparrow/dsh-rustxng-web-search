@@ -29,8 +29,8 @@ session) and install one of these. The repository is public, so npm is not requi
 | Source | Install spec |
 | --- | --- |
 | npm package (once the stage is approved) | `dsh-rustxng-web-search` |
-| This repository at tag `v1.0.1` | `dsh-rustxng-web-search@github:white-sparrow/dsh-rustxng-web-search#v1.0.1` |
-| A packed tarball — the asset on the release | `<path>/dsh-rustxng-web-search-1.0.1.tgz` |
+| This repository at tag `v1.0.2` | `dsh-rustxng-web-search@github:white-sparrow/dsh-rustxng-web-search#v1.0.2` |
+| A packed tarball — the asset on the release | `<path>/dsh-rustxng-web-search-1.0.2.tgz` |
 | A local checkout, for development | `<path>/rustxng-web-search` (pnpm links it) |
 
 The package runs **no install scripts**, so installing is only copying files: the first
@@ -58,9 +58,16 @@ All keys optional; the patch in `cordis.patch.yml` ships `config: {}`.
 
 `binaryPath`, `bindAddress` (`127.0.0.1`), `port` (`8888`), `searchTimeoutMs`
 (`30000`), `defaultEnabled` (`true`), `engineRepo` (`sahenjp/RustXNG`),
-`engineVersion` (pinned `0.4.1`), `autoDownload` (`true`), `autoUpdate` (`true`),
-`updateIntervalMs` (`21600000` = 6 h), `downloadTimeoutMs` (`180000`),
-`checkTimeoutMs` (`15000`).
+`engineVersion` (pinned `0.5.1`; `""` follows the newest release), `autoDownload`
+(`true`), `autoUpdate` (`true`), `updateIntervalMs` (`21600000` = 6 h),
+`downloadTimeoutMs` (`180000`), `checkTimeoutMs` (`15000`).
+
+Search quality: `searchLanguage` (`en`), `safesearch` (`1`), `resultPool` (`40`),
+`hostCap` (`5`), `includeDomains` (`""`), `excludeDomains` (`""`). The plugin asks
+the engine for a wide pool and re-ranks it before slicing, because RustXNG scores
+every engine's first hit exactly `1.0` — its own order is one arbitrary hit per
+engine — so `rank.mjs` orders by query agreement, host diversity, and, for version
+queries, release recency.
 
 Unknown keys are rejected at load with the expected list.
 
@@ -80,15 +87,19 @@ local process — because that transport does not carry `Origin` or `Sec-Fetch-S
   keeps being used, and `GET engine` shows the error in `note` / `error`.
 - No asset for your platform/arch → `GET engine` reports it in `target`; set
   `binaryPath` to a binary you supply yourself.
+- Results look off-topic → the engine reports how many upstream engines it
+  blocked or timed out in `GET engine` → `lastSearch.blockedCount`; that is where
+  thin pools come from. Narrow with `includeDomains`, or widen `resultPool`.
 - `ERR_PNPM_IGNORED_BUILDS` while installing → you resolved npm `1.0.0`, which shipped
-  an install script; take `1.0.1`, or install from this repository's tag instead.
+  an install script; take `1.0.1` or later, or install from this repository's tag instead.
 
 ## Publishing
 
 The plugin is published in two ways: the npm package (staged, then approved) and this
-public repository — the current tag `v1.0.1` plus a GitHub release carrying
-`dsh-rustxng-web-search-1.0.1.tgz`, which is what `npm pack` produces. A first
-`1.0.0` is already live on npm; its tag marks the commit that was published.
+public repository — the current tag `v1.0.2` plus a GitHub release carrying
+`dsh-rustxng-web-search-1.0.2.tgz`, which is what `npm pack` produces. npm currently
+serves `1.0.0`; `1.0.1` and `1.0.2` wait in staging for their approval. Each tag
+marks the commit it names.
 
 The package is staged for publishing with a **staging-only** Granular Access Token
 kept in the gitignored `.env` (`NPM_TOKEN=<token>`, see `.env.example`).
@@ -109,6 +120,10 @@ The token appears in no command line, log, commit, or tarball.
 Switch off hides both tools for that session and on restores them (checked against
 the live Agent tool list); search returns real sources after a cold start; the
 engine downloaded from GitHub matches upstream's published sha256; the updater
-replaced 0.4.0 with 0.4.1 through a live release. Not checked: the download-resume
-path end to end (no interruption has been long enough to need it) and how the chip
-tooltip looks in a browser.
+replaced 0.4.0 → 0.4.1 and later 0.4.1 → 0.6.1 through live releases. The re-ranker
+is covered by 18 assertions in `test/rank.mjs` (`npm test`) and was measured against
+live engine responses, where it moved the requested project's release pages from
+index 9-10 to the top. Not checked: the download-resume path end to end (no
+interruption has been long enough to need it) and how the chip tooltip looks in a
+browser. Re-ranking cannot recover pages that blocked upstream engines never
+returned — see `lastSearch.blockedCount` in `GET engine`.

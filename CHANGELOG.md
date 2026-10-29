@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.0.2
+
+- Search results are re-ranked before they reach the model. RustXNG gives every
+  engine's first hit a score of exactly `1.0`, so its merged order is one arbitrary
+  hit per engine; `rank.mjs` orders a wide pool by query agreement, host diversity
+  (`hostCap`), script sanity, known hosts over keyword-squatting domains, the project
+  home page, and release recency for version queries, then slices.
+- New config keys: `searchLanguage`, `safesearch`, `resultPool`, `hostCap`,
+  `includeDomains`, `excludeDomains` — the last two are engine-side domain filters.
+- `GET engine` reports the engine's own blocked-engine count in `lastSearch`; that
+  is usually the real reason a result list looks off-topic.
+- Engine pin raised to `0.5.1`, the release that honours `max_results` and
+  `include_domains`; auto-update still follows upstream (`0.6.1` verified by sha256).
+- `npm test` runs 18 assertions over the re-ranker.
+
 ## 1.0.1
 
 - Installs without a fight: the package runs **no install scripts**, so a package

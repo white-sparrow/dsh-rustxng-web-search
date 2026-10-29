@@ -1,6 +1,6 @@
 {
   "name": "dsh-rustxng-web-search",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Key-free web search plugin for DeepSeek Harness: downloads the RustXNG metasearch server from its releases, runs it locally, and adds a per-session Web search switch to the composer.",
   "keywords": [
     "deepseek-harness",
@@ -33,11 +33,13 @@
     ".": "./index.js",
     "./client": "./client.js",
     "./engine": "./engine.mjs",
+    "./rank": "./rank.mjs",
     "./locale/*.json": "./locale/*.json",
     "./icon": "./icon.svg"
   },
   "scripts": {
-    "check": "node --check index.js && node --check client.js && node --check engine.mjs && node --check scripts/install-engine.mjs && node --check scripts/npm-auth.mjs",
+    "check": "node --check index.js && node --check client.js && node --check engine.mjs && node --check rank.mjs && node --check scripts/install-engine.mjs && node --check scripts/npm-auth.mjs",
+    "test": "node test/rank.mjs",
     "prepublishOnly": "npm run check",
     "prepack": "npm run check",
     "engine": "node scripts/install-engine.mjs",
@@ -55,6 +57,7 @@
     "index.js",
     "client.js",
     "engine.mjs",
+    "rank.mjs",
     "cordis.patch.yml",
     "scripts/install-engine.mjs",
     "locale/*.json",
