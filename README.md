@@ -98,7 +98,7 @@ local process — because that transport does not carry `Origin` or `Sec-Fetch-S
 The plugin is published in two ways: the npm package (staged, then approved) and this
 public repository — the current tag `v1.0.2` plus a GitHub release carrying
 `dsh-rustxng-web-search-1.0.2.tgz`, which is what `npm pack` produces. npm currently
-serves `1.0.0`; `1.0.1` and `1.0.2` wait in staging for their approval. Each tag
+serves `1.0.0` and `1.0.1`; `1.0.2` waits in staging for its approval. Each tag
 marks the commit it names.
 
 The package is staged for publishing with a **staging-only** Granular Access Token
