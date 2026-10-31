@@ -3,8 +3,11 @@
 Key-free web search for DeepSeek Harness. The plugin runs
 [RustXNG](https://github.com/sahenjp/RustXNG) — a SearXNG-style metasearch server
 written in Rust — as a local child process and registers it as the Harness `web`
-service's search provider, so `web_search` and `web_fetch` work with **no API key**
-and no external service.
+service's search provider. DSH's `web_search` and `web_fetch` tools can then be
+used without a paid search API key or a search service that the user must operate.
+
+**An internet connection is required.** RustXNG runs locally, but its upstream
+search providers and the pages being fetched are reached over the internet.
 
 RustXNG is AGPL-3.0-or-later. Its binary is **not** shipped in this package or this
 repository: it is downloaded from upstream's GitHub releases at install time (or on
@@ -24,14 +27,14 @@ the first search), verified against the published sha256, and stored in `bin/`.
 ## Install
 
 Open the Plugin Manager (in the Harness UI, or with the `plugin_manager` tool from a
-session) and install one of these. The repository is public, so npm is not required:
+session). The repository is public, so npm is not required.
 
 | Source | Install spec |
 | --- | --- |
-| npm package (once the stage is approved) | `dsh-rustxng-web-search` |
-| This repository at tag `v1.0.2` | `dsh-rustxng-web-search@github:white-sparrow/dsh-rustxng-web-search#v1.0.2` |
-| A packed tarball — the asset on the release | `<path>/dsh-rustxng-web-search-1.0.2.tgz` |
-| A local checkout, for development | `<path>/rustxng-web-search` (pnpm links it) |
+| GitHub tag | `dsh-rustxng-web-search@github:white-sparrow/dsh-rustxng-web-search#vX.Y.Z` (replace with the tag shown on [Releases](https://github.com/white-sparrow/dsh-rustxng-web-search/releases)) |
+| GitHub release tarball | Download `dsh-rustxng-web-search-X.Y.Z.tgz` from [Releases](https://github.com/white-sparrow/dsh-rustxng-web-search/releases) |
+| npm package | `dsh-rustxng-web-search` (registry publication may lag behind GitHub releases) |
+| Local checkout, for development | `<path>/rustxng-web-search` (pnpm links it) |
 
 The package runs **no install scripts**, so installing is only copying files: the first
 search downloads the engine into `bin/` beside the installed copy and verifies its
@@ -65,8 +68,7 @@ All keys optional; the patch in `cordis.patch.yml` ships `config: {}`.
 The default engine pin is RustXNG `0.24.0`. Local indexing is deliberately not
 configured or enabled by this plugin; upstream treats it as experimental, so the
 plugin continues to use metasearch results by default. Per-engine proxy settings are
-not yet exposed by this plugin; configure them only after adding an explicit settings
-file integration and supplying the proxy endpoints you intend to use.
+not exposed by this plugin.
 
 Search quality: `searchLanguage` (`en`), `safesearch` (`1`), `resultPool` (`40`),
 `hostCap` (`5`), `includeDomains` (`""`), `excludeDomains` (`""`). The plugin asks
@@ -96,42 +98,58 @@ local process — because that transport does not carry `Origin` or `Sec-Fetch-S
 - Results look off-topic → the engine reports how many upstream engines it
   blocked or timed out in `GET engine` → `lastSearch.blockedCount`; that is where
   thin pools come from. Narrow with `includeDomains`, or widen `resultPool`.
-- `ERR_PNPM_IGNORED_BUILDS` while installing → you resolved npm `1.0.0`, which shipped
-  an install script; take `1.0.1` or later, or install from this repository's tag instead.
+- `ERR_PNPM_IGNORED_BUILDS` while installing → check that you are using a version
+  that does not ship an install script; use the GitHub release tarball if unsure.
 
-## Publishing
+## Versioning
 
-The plugin is published in two ways: the npm package (staged, then approved) and this
-public repository — the current tag `v1.0.2` plus a GitHub release carrying
-`dsh-rustxng-web-search-1.0.2.tgz`, which is what `npm pack` produces. npm currently
-serves `1.0.0` and `1.0.1`; `1.0.2` waits in staging for its approval. Each tag
-marks the commit it names.
+This project uses `MAJOR.MINOR.PATCH`:
 
-The package is staged for publishing with a **staging-only** Granular Access Token
-kept in the gitignored `.env` (`NPM_TOKEN=<token>`, see `.env.example`).
+| Part | Increment when | Example |
+| --- | --- | --- |
+| **MAJOR** | A breaking change to the DSH integration, tool contract, or required configuration | `2.0.0` |
+| **MINOR** | A backward-compatible capability or meaningful user-facing integration improvement | `1.1.0` |
+| **PATCH** | Bug fixes, documentation corrections, and small internal refinements that do not add a capability | `1.1.1` |
+
+Do not use a patch increment for a new user-facing capability. In particular, a
+meaningful RustXNG integration upgrade can justify a MINOR increment even when the
+plugin's JavaScript API remains compatible.
+
+## GitHub Releases
+
+GitHub Releases are created by the **Release** GitHub Actions workflow. After
+changes have been merged and are ready to publish:
+
+1. Open the repository's **Actions** tab.
+2. Select **Release**, then **Run workflow** on `master`.
+3. Choose `patch`, `minor`, or `major`.
+
+The workflow runs `npm run check` and `npm test`, increments the package version
+according to the selected level, commits the version change to `master`, creates
+the matching `vX.Y.Z` tag, runs `npm pack`, and publishes a GitHub Release with
+generated release notes and the packed `.tgz` asset. It refuses to overwrite an
+existing tag and can resume if a run stops after pushing the tag but before creating
+the GitHub Release.
+
+The workflow creates **GitHub Releases only**. It does not publish to the npm
+registry. npm publication remains a separate, manually approved operation:
 
 ```
-npm run stage            # stage publish → prints the stage id
-npm run stage:list       # what is waiting
-npm run stage:approve <stage-id>   # needs your 2FA code: run this yourself
+npm run stage                 # stage publish → prints the stage id
+npm run stage:list            # inspect staged packages
+npm run stage:approve <id>    # requires your 2FA code; run this yourself
 ```
 
-`scripts/npm-auth.mjs` installs npm 11.21.1 under the gitignored `.npm-tools/`
-(the machine's npm 10.x has no `stage` command) and moves the token from `.env`
-into a throwaway owner-only `.npmrc` that is deleted when the command returns.
-The token appears in no command line, log, commit, or tarball.
+The staging-only npm token remains in the gitignored `.env` (`NPM_TOKEN=<token>`,
+see `.env.example`). `scripts/npm-auth.mjs` moves it into a throwaway owner-only
+`.npmrc` that is deleted when the command returns. The token appears in no command
+line, log, commit, or tarball.
 
-## Verified
+## Verification status
 
-Switch off hides both tools for that session and on restores them (checked against
-the live Agent tool list); search returns real sources after a cold start; the
-engine downloaded from GitHub matches upstream's published sha256; the updater
-replaced 0.4.0 → 0.4.1 and later 0.4.1 → 0.6.1 through live releases. The default
-pin is now RustXNG 0.24.0; this newer release has not yet been exercised end to end
-in the Harness runtime. The re-ranker
-is covered by 18 assertions in `test/rank.mjs` (`npm test`) and was measured against
-live engine responses, where it moved the requested project's release pages from
-index 9-10 to the top. Not checked: the download-resume path end to end (no
-interruption has been long enough to need it) and how the chip tooltip looks in a
-browser. Re-ranking cannot recover pages that blocked upstream engines never
-returned — see `lastSearch.blockedCount` in `GET engine`.
+The re-ranker is covered by assertions in `test/rank.mjs` (`npm test`) and has been
+measured against live engine responses. The default engine pin is RustXNG `0.24.0`;
+it has not yet been exercised end to end in the Harness runtime. The download-resume
+path has not been tested through a deliberately interrupted download, and the chip
+tooltip has not been browser-verified. Re-ranking cannot recover pages that blocked
+upstream engines never returned — see `lastSearch.blockedCount` in `GET engine`.

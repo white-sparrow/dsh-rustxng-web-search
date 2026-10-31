@@ -1,17 +1,14 @@
 # Changelog
 
-## 1.0.3
+## [Unreleased]
 
 - Upgrade the default RustXNG engine pin from `0.5.1` to `0.24.0`, so fresh installs
   receive the current upstream engine and its search reliability improvements.
 - Keep RustXNG local indexing disabled: upstream marks it experimental, and the
   plugin does not yet generate or manage an engine settings file.
-- Document that per-engine proxy support is not yet exposed by the plugin; proxy
-  routing requires explicit upstream settings and administrator-supplied endpoints.
+- Document that per-engine proxy support is not exposed by the plugin.
 - Existing auto-update, SHA-256 verification, and fallback-to-installed-binary
   behavior remain unchanged.
-
-# Changelog
 
 ## 1.0.2
 
@@ -43,8 +40,8 @@
 ## 1.0.0
 
 - Host half: spawns a locally downloaded RustXNG metasearch server and registers it
-  as the Harness `web` search provider (`searchProvider: rustxng`), so `web_search`
-  and `web_fetch` need no API key.
+  as the Harness `web` search provider (`searchProvider: rustxng`), so
+  `web_search` and `web_fetch` need no API key.
 - Engine supply: fetched on demand from `sahenjp/RustXNG` GitHub releases into
   `bin/`, verified by published sha256 and byte count, written atomically, resumed
   across interrupted downloads, and kept current with a scheduled upstream check.
