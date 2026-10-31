@@ -125,7 +125,9 @@ jobs:
         id: pack
         run: |
           set -euo pipefail
-          TARBALL="$(npm pack --silent)"
+          VERSION="$(node -p "require('./package.json').version")"
+          TARBALL="dsh-rustxng-web-search-${VERSION}.tgz"
+          npm pack --silent >/dev/null
           test -s "${TARBALL}"
           echo "file=${TARBALL}" >> "${GITHUB_OUTPUT}"
 
