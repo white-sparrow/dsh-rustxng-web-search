@@ -20,12 +20,11 @@ import https from 'node:https'
 export const REPO = 'sahenjp/RustXNG'
 /**
  * The release this plugin was built against: a fresh install takes this one.
- * 0.5.0 added the agent-facing parameters this plugin sends (`max_results`,
- * `include_domains`, `exclude_domains`) and fixed `timeout_limit` discarding results
- * from engines that had already answered; older builds simply ignore the extra
- * query parameters.
+ * 0.5.0 introduced the agent-facing search parameters; 0.24.0 adds per-engine
+ * proxy support and the current upstream reliability/crawler improvements. Local
+ * indexing remains opt-in upstream and is not enabled by this plugin.
  */
-export const PINNED_VERSION = '0.5.1'
+export const PINNED_VERSION = '0.24.0'
 export const UA = 'rustxng-web-search-plugin'
 
 const API = 'https://api.github.com'
