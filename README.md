@@ -58,9 +58,15 @@ All keys optional; the patch in `cordis.patch.yml` ships `config: {}`.
 
 `binaryPath`, `bindAddress` (`127.0.0.1`), `port` (`8888`), `searchTimeoutMs`
 (`30000`), `defaultEnabled` (`true`), `engineRepo` (`sahenjp/RustXNG`),
-`engineVersion` (pinned `0.5.1`; `""` follows the newest release), `autoDownload`
+`engineVersion` (pinned `0.24.0`; `""` follows the newest release), `autoDownload`
 (`true`), `autoUpdate` (`true`), `updateIntervalMs` (`21600000` = 6 h),
 `downloadTimeoutMs` (`180000`), `checkTimeoutMs` (`15000`).
+
+The default engine pin is RustXNG `0.24.0`. Local indexing is deliberately not
+configured or enabled by this plugin; upstream treats it as experimental, so the
+plugin continues to use metasearch results by default. Per-engine proxy settings are
+not yet exposed by this plugin; configure them only after adding an explicit settings
+file integration and supplying the proxy endpoints you intend to use.
 
 Search quality: `searchLanguage` (`en`), `safesearch` (`1`), `resultPool` (`40`),
 `hostCap` (`5`), `includeDomains` (`""`), `excludeDomains` (`""`). The plugin asks
@@ -120,7 +126,9 @@ The token appears in no command line, log, commit, or tarball.
 Switch off hides both tools for that session and on restores them (checked against
 the live Agent tool list); search returns real sources after a cold start; the
 engine downloaded from GitHub matches upstream's published sha256; the updater
-replaced 0.4.0 → 0.4.1 and later 0.4.1 → 0.6.1 through live releases. The re-ranker
+replaced 0.4.0 → 0.4.1 and later 0.4.1 → 0.6.1 through live releases. The default
+pin is now RustXNG 0.24.0; this newer release has not yet been exercised end to end
+in the Harness runtime. The re-ranker
 is covered by 18 assertions in `test/rank.mjs` (`npm test`) and was measured against
 live engine responses, where it moved the requested project's release pages from
 index 9-10 to the top. Not checked: the download-resume path end to end (no
