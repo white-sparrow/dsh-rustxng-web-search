@@ -9,7 +9,7 @@
 //
 // Knobs (all optional):
 //   RUSTXNG_ENGINE=skip | RUSTXNG_ENGINE_SKIP=1   exit without doing anything
-//   RUSTXNG_ENGINE_VERSION=0.4.1                  override the pinned release
+//   RUSTXNG_ENGINE_VERSION=0.24.0                  override the pinned release
 //   RUSTXNG_ENGINE_REPO=owner/repo                use a fork's releases
 //   RUSTXNG_ENGINE_PATH=<file>                  land somewhere else
 //   --force                                           refetch even when present
