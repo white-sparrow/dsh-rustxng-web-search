@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.0.3
+
+- Upgrade the default RustXNG engine pin from `0.5.1` to `0.24.0`, so fresh installs
+  receive the current upstream engine and its search reliability improvements.
+- Keep RustXNG local indexing disabled: upstream marks it experimental, and the
+  plugin does not yet generate or manage an engine settings file.
+- Document that per-engine proxy support is not yet exposed by the plugin; proxy
+  routing requires explicit upstream settings and administrator-supplied endpoints.
+- Existing auto-update, SHA-256 verification, and fallback-to-installed-binary
+  behavior remain unchanged.
+
+# Changelog
+
 ## 1.0.2
 
 - Search results are re-ranked before they reach the model. RustXNG gives every
